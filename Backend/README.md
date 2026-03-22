@@ -87,7 +87,8 @@ npm run pm2:stop
   - `nginx`
   - `postgres`
   - `redis`
-- WebSocket upgrades are forwarded through Nginx, but the current Yjs/presence room state is still in-memory per API node. For true multi-node realtime collaboration you would still add shared pub/sub or sticky routing.
+- WebSocket upgrades are forwarded through Nginx.
+- Realtime collaboration now uses Redis-backed pub/sub fan-out plus Redis-persisted Yjs room snapshots so multiple API nodes can share document updates and presence state.
 
 ## Environment Variables
 
@@ -176,4 +177,5 @@ npm run pm2:stop
 - Refresh sessions are stored in Redis and rotated on `/api/auth/refresh`.
 - Book, chapter, export, and asset tables use PostgreSQL row-level security with `app.current_user_id`.
 - WebSocket collaboration is available at `/ws?bookId=...&name=...&userId=...`.
+- WebSocket collaboration fans out across API instances through Redis pub/sub, which makes Nginx or PM2-backed multi-instance deployments workable for realtime sync.
 - PM2 and Nginx are deployment options, not mandatory for a school submission.
