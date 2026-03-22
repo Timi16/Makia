@@ -2,9 +2,11 @@ import { CookieSerializeOptions } from "@fastify/cookie";
 import { FastifyReply } from "fastify";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { prisma } from "../lib/prisma";
+import { redis } from "../lib/redis";
 import { AppError } from "../middleware/errorHandler";
 
 const registerSchema = z.object({
@@ -32,6 +34,7 @@ export interface AuthenticatedUser {
 }
 
 interface TokenPayload extends AuthenticatedUser {
+  sessionId?: string;
   type: "access" | "refresh";
 }
 
@@ -39,6 +42,16 @@ interface AuthResponse {
   accessToken: string;
   refreshToken: string;
   user: AuthenticatedUser;
+}
+
+interface RefreshResponse {
+  accessToken: string;
+  refreshToken: string;
+  user: AuthenticatedUser;
+}
+
+interface RefreshTokenPayload extends AuthenticatedUser {
+  sessionId: string;
 }
 
 function getJwtSecrets() {
@@ -74,6 +87,10 @@ function getRefreshCookieOptions(): CookieSerializeOptions {
   }
 
   return options;
+}
+
+function getRefreshSessionKey(sessionId: string) {
+  return `auth:refresh:${sessionId}`;
 }
 
 export function setRefreshCookie(reply: FastifyReply, refreshToken: string) {
@@ -141,12 +158,13 @@ export class AuthService {
     });
   }
 
-  public async refresh(refreshToken: string | undefined) {
+  public async refresh(refreshToken: string | undefined): Promise<RefreshResponse> {
     if (!refreshToken) {
       throw new AppError(401, "Refresh token is required");
     }
 
     const payload = this.verifyRefreshToken(refreshToken);
+    await this.assertRefreshSession(payload, refreshToken);
     const user = await prisma.user.findUnique({
       where: { id: payload.id },
       select: {
@@ -160,10 +178,19 @@ export class AuthService {
       throw new AppError(401, "Invalid refresh token");
     }
 
-    return {
-      accessToken: this.signAccessToken(user),
-      user: toPublicUser(user),
-    };
+    await this.revokeRefreshSession(payload.sessionId!);
+
+    return this.issueTokens(user);
+  }
+
+  public async logout(refreshToken: string | undefined) {
+    if (!refreshToken) {
+      return;
+    }
+
+    const payload = this.verifyRefreshToken(refreshToken);
+
+    await this.revokeRefreshSession(payload.sessionId!);
   }
 
   public verifyAccessToken(token: string): AuthenticatedUser {
@@ -182,25 +209,30 @@ export class AuthService {
     }
   }
 
-  private verifyRefreshToken(token: string): AuthenticatedUser {
+  private verifyRefreshToken(token: string): RefreshTokenPayload {
     const { refreshSecret } = getJwtSecrets();
 
     try {
       const decoded = jwt.verify(token, refreshSecret) as TokenPayload;
 
-      if (decoded.type !== "refresh") {
+      if (decoded.type !== "refresh" || !decoded.sessionId) {
         throw new AppError(401, "Invalid refresh token");
       }
 
-      return toPublicUser(decoded);
+      return {
+        ...toPublicUser(decoded),
+        sessionId: decoded.sessionId,
+      };
     } catch (error) {
       throw new AppError(401, "Invalid refresh token", error);
     }
   }
 
-  private issueTokens(user: AuthenticatedUser): AuthResponse {
+  private async issueTokens(user: AuthenticatedUser): Promise<AuthResponse> {
+    const sessionId = randomUUID();
     const accessToken = this.signAccessToken(user);
-    const refreshToken = this.signRefreshToken(user);
+    const refreshToken = this.signRefreshToken(user, sessionId);
+    await this.persistRefreshSession(user.id, sessionId, refreshToken);
 
     return {
       accessToken,
@@ -225,12 +257,13 @@ export class AuthService {
     );
   }
 
-  private signRefreshToken(user: AuthenticatedUser) {
+  private signRefreshToken(user: AuthenticatedUser, sessionId: string) {
     const { refreshSecret } = getJwtSecrets();
 
     return jwt.sign(
       {
         ...toPublicUser(user),
+        sessionId,
         type: "refresh",
       },
       refreshSecret,
@@ -239,6 +272,42 @@ export class AuthService {
         subject: user.id,
       }
     );
+  }
+
+  private async persistRefreshSession(userId: string, sessionId: string, refreshToken: string) {
+    await redis.set(
+      getRefreshSessionKey(sessionId),
+      JSON.stringify({
+        refreshToken,
+        userId,
+      }),
+      "EX",
+      refreshTokenMaxAgeSeconds
+    );
+  }
+
+  private async assertRefreshSession(
+    payload: RefreshTokenPayload,
+    refreshToken: string
+  ) {
+    const session = await redis.get(getRefreshSessionKey(payload.sessionId));
+
+    if (!session) {
+      throw new AppError(401, "Refresh session expired or revoked");
+    }
+
+    const parsed = JSON.parse(session) as {
+      refreshToken: string;
+      userId: string;
+    };
+
+    if (parsed.refreshToken !== refreshToken || parsed.userId !== payload.id) {
+      throw new AppError(401, "Refresh session expired or revoked");
+    }
+  }
+
+  private async revokeRefreshSession(sessionId: string) {
+    await redis.del(getRefreshSessionKey(sessionId));
   }
 }
 

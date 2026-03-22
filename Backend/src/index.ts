@@ -5,6 +5,7 @@ import Fastify from "fastify";
 
 import { exportQueue } from "./jobs/exportQueue";
 import { prisma } from "./lib/prisma";
+import { redis } from "./lib/redis";
 import { registerErrorHandler } from "./middleware/errorHandler";
 import { registerRateLimiter } from "./middleware/rateLimiter";
 import { authRoutes } from "./routes/auth";
@@ -33,6 +34,23 @@ export async function buildServer() {
     status: "ok",
   }));
 
+  app.get("/ready", async (_request, reply) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      await redis.ping();
+
+      return {
+        status: "ready",
+      };
+    } catch (error) {
+      app.log.error(error, "Readiness check failed");
+
+      return reply.status(503).send({
+        status: "not_ready",
+      });
+    }
+  });
+
   await app.register(authRoutes, { prefix: "/api/auth" });
   await app.register(bookRoutes, { prefix: "/api/books" });
   await app.register(chapterRoutes, { prefix: "/api" });
@@ -41,7 +59,7 @@ export async function buildServer() {
   await registerRealtimeServer(app);
 
   app.addHook("onClose", async () => {
-    await Promise.allSettled([prisma.$disconnect(), exportQueue.close()]);
+    await Promise.allSettled([prisma.$disconnect(), exportQueue.close(), redis.quit()]);
   });
 
   registerErrorHandler(app);

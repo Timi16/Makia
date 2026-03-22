@@ -49,6 +49,46 @@ Production-ready backend for the E-Book Maker app built with Fastify, TypeScript
    npm run worker:export
    ```
 
+## Deployment
+
+### PM2
+
+Build the backend first:
+
+```bash
+npm run build
+```
+
+Run the API in cluster mode plus a dedicated export worker:
+
+```bash
+npm run pm2:start
+```
+
+Reload after deploying a new build:
+
+```bash
+npm run pm2:reload
+```
+
+Stop the managed processes:
+
+```bash
+npm run pm2:stop
+```
+
+### Nginx Load Balancing
+
+- [deployment/nginx/nginx.conf](/Users/ik/Documents/Makia/Backend/deployment/nginx/nginx.conf) balances traffic across two API containers with `least_conn`.
+- [docker-compose.deploy.yml](/Users/ik/Documents/Makia/Backend/docker-compose.deploy.yml) provides a simple deployment topology with:
+  - `api-1`
+  - `api-2`
+  - `worker`
+  - `nginx`
+  - `postgres`
+  - `redis`
+- WebSocket upgrades are forwarded through Nginx, but the current Yjs/presence room state is still in-memory per API node. For true multi-node realtime collaboration you would still add shared pub/sub or sticky routing.
+
 ## Environment Variables
 
 `DATABASE_URL`
@@ -58,7 +98,7 @@ Production-ready backend for the E-Book Maker app built with Fastify, TypeScript
 : Admin PostgreSQL connection string used for Prisma migrations in local development.
 
 `REDIS_URL`
-: Redis connection string used by BullMQ.
+: Redis connection string used by BullMQ and refresh-session storage.
 
 `JWT_ACCESS_SECRET`
 : Secret used to sign 15-minute access tokens.
@@ -131,6 +171,9 @@ Production-ready backend for the E-Book Maker app built with Fastify, TypeScript
 ## Notes
 
 - `/health` returns `{ "status": "ok" }`.
+- `/ready` checks PostgreSQL and Redis, and returns `503` if either dependency is unavailable.
 - Refresh tokens are stored in an HTTP-only cookie.
+- Refresh sessions are stored in Redis and rotated on `/api/auth/refresh`.
 - Book, chapter, export, and asset tables use PostgreSQL row-level security with `app.current_user_id`.
 - WebSocket collaboration is available at `/ws?bookId=...&name=...&userId=...`.
+- PM2 and Nginx are deployment options, not mandatory for a school submission.

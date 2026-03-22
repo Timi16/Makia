@@ -7,6 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:reload": "pm2 reload ecosystem.config.cjs",
+    "pm2:stop": "pm2 delete ecosystem.config.cjs",
     "prisma:generate": "prisma generate --schema src/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema src/prisma/schema.prisma",
     "worker:export": "tsx src/workers/exportWorker.ts"
@@ -47,6 +50,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.5.0",
     "@types/ws": "^8.18.1",
+    "pm2": "^6.0.14",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
