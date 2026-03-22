@@ -1,0 +1,56 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Production-ready backend for the E-Book Maker app",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "worker:export": "tsx src/workers/exportWorker.ts"
+  },
+  "keywords": [
+    "fastify",
+    "typescript",
+    "prisma",
+    "ebook-maker"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "prisma": {
+    "schema": "src/prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1014.0",
+    "@aws-sdk/s3-request-presigner": "^3.1014.0",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@prisma/client": "^7.5.0",
+    "bcrypt": "^6.0.0",
+    "bullmq": "^5.71.0",
+    "dotenv": "^17.3.1",
+    "epub-gen": "^0.1.0",
+    "fastify": "^5.8.2",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.3",
+    "prisma": "^7.5.0",
+    "puppeteer": "^24.40.0",
+    "sharp": "^0.34.5",
+    "uuid": "^13.0.0",
+    "ws": "^8.20.0",
+    "yjs": "^13.6.30",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
