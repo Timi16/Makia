@@ -3,8 +3,16 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 
+import { exportQueue } from "./jobs/exportQueue";
+import { prisma } from "./lib/prisma";
 import { registerErrorHandler } from "./middleware/errorHandler";
 import { registerRateLimiter } from "./middleware/rateLimiter";
+import { authRoutes } from "./routes/auth";
+import { bookRoutes } from "./routes/books";
+import { chapterRoutes } from "./routes/chapters";
+import { exportRoutes } from "./routes/export";
+import { storageRoutes } from "./routes/storage";
+import { registerRealtimeServer } from "./ws/realtimeServer";
 
 const DEFAULT_PORT = 4000;
 
@@ -20,6 +28,21 @@ export async function buildServer() {
     origin: process.env.FRONTEND_ORIGIN ?? true,
   });
   await registerRateLimiter(app);
+
+  app.get("/health", async () => ({
+    status: "ok",
+  }));
+
+  await app.register(authRoutes, { prefix: "/api/auth" });
+  await app.register(bookRoutes, { prefix: "/api/books" });
+  await app.register(chapterRoutes, { prefix: "/api" });
+  await app.register(storageRoutes, { prefix: "/api/storage" });
+  await app.register(exportRoutes, { prefix: "/api/export" });
+  await registerRealtimeServer(app);
+
+  app.addHook("onClose", async () => {
+    await Promise.allSettled([prisma.$disconnect(), exportQueue.close()]);
+  });
 
   registerErrorHandler(app);
 
