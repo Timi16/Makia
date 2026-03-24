@@ -323,13 +323,12 @@ const EditorPage = () => {
                 ))}
               </div>
 
-              <div
-                className="px-16 py-12 min-h-[60vh] prose prose-lg max-w-none focus:outline-none"
-                contentEditable
-                suppressContentEditableWarning
-                onInput={(event) => setEditorHtml((event.target as HTMLDivElement).innerHTML)}
+              <textarea
+                value={editorHtml}
+                onChange={(event) => setEditorHtml(event.target.value)}
                 onBlur={() => void handleSaveChapter()}
-                dangerouslySetInnerHTML={{ __html: editorHtml || "<p>Start writing...</p>" }}
+                className="w-full px-16 py-12 min-h-[60vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
+                placeholder="Start writing..."
               />
             </div>
             {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}

@@ -44,6 +44,12 @@ const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.repla
 
 let refreshPromise: Promise<void> | null = null;
 
+function emitAuthChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth-changed"));
+  }
+}
+
 function readJson<T>(value: string | null): T | null {
   if (!value) {
     return null;
@@ -59,11 +65,13 @@ function readJson<T>(value: string | null): T | null {
 function persistAuth(payload: AuthResponse) {
   localStorage.setItem(ACCESS_TOKEN_KEY, payload.accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
+  emitAuthChanged();
 }
 
 export function clearAuth() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  emitAuthChanged();
 }
 
 function redirectToLogin() {
