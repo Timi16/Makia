@@ -100,7 +100,7 @@ const LoginPage = () => {
   const rightContent = (
     <div className="flex-1 flex flex-col px-8 sm:px-16 lg:px-20 py-12">
       <Link to="/" className="text-2xl font-bold text-primary mb-16">
-        Folio AI
+        Folio
       </Link>
 
       <motion.div

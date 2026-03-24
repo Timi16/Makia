@@ -46,7 +46,7 @@ const AdminPage = () => {
       {/* Sidebar */}
       <div className="w-56 bg-sidebar flex flex-col shrink-0">
         <div className="p-5">
-          <h1 className="text-lg font-bold text-sidebar-foreground">Folio AI Admin</h1>
+          <h1 className="text-lg font-bold text-sidebar-foreground">Folio Admin</h1>
         </div>
         <nav className="flex-1 px-3 space-y-1">
           {navItems.map((item) => (

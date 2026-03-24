@@ -48,7 +48,7 @@ const DashboardNavbar = ({ user }: DashboardNavbarProps) => {
   return (
     <nav className="sticky top-0 z-50 bg-card border-b border-border h-16 flex items-center px-6">
       <Link to="/dashboard" className="text-xl font-bold text-primary mr-8">
-        Folio AI
+        Folio
       </Link>
 
       <div className="flex-1 max-w-md mx-auto">
