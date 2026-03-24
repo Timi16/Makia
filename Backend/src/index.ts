@@ -17,16 +17,38 @@ import { registerRealtimeServer } from "./ws/realtimeServer";
 
 const DEFAULT_PORT = 4000;
 
+function parseAllowedOrigins() {
+  const raw = process.env.FRONTEND_ORIGIN;
+
+  if (!raw || raw.trim().length === 0) {
+    return null;
+  }
+
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
 export async function buildServer() {
   const app = Fastify({
     logger: true,
     trustProxy: true,
   });
 
+  const allowedOrigins = parseAllowedOrigins();
+
   await app.register(cookie);
   await app.register(cors, {
     credentials: true,
-    origin: process.env.FRONTEND_ORIGIN ?? true,
+    origin: (origin, callback) => {
+      if (!allowedOrigins || !origin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, allowedOrigins.includes(origin));
+    },
   });
   await registerRateLimiter(app);
 
