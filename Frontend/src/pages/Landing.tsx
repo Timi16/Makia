@@ -44,7 +44,7 @@ const features = [
 
 const testimonials = [
   {
-    quote: "Folio cut my publishing workflow in half. The export quality is incredible.",
+    quote: "Folio AI cut my publishing workflow in half. The export quality is incredible.",
     name: "Maria Chen",
     title: "Bestselling Author",
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&h=80&fit=crop&crop=face",
@@ -87,7 +87,7 @@ const LandingPage = () => {
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold text-primary flex items-center gap-2">
             <Sparkles className="w-5 h-5" />
-            Folio
+            Folio AI
           </Link>
           <div className="hidden md:flex items-center gap-8">
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a>
@@ -222,7 +222,7 @@ const LandingPage = () => {
               Everything you need to write & publish
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              From first draft to published book, Folio gives you every tool in one workspace.
+              From first draft to published book, Folio AI gives you every tool in one workspace.
             </p>
           </motion.div>
 
@@ -278,7 +278,7 @@ const LandingPage = () => {
                 <div className="w-3 h-3 rounded-full bg-warning/60" />
                 <div className="w-3 h-3 rounded-full bg-success/60" />
               </div>
-              <span className="text-xs text-muted-foreground ml-2">Folio Editor — The Last Algorithm</span>
+              <span className="text-xs text-muted-foreground ml-2">Folio AI Editor — The Last Algorithm</span>
             </div>
             <div className="bg-card p-8 md:p-12">
               <div className="max-w-2xl mx-auto">
@@ -447,7 +447,7 @@ const LandingPage = () => {
               Ready to write your next book?
             </h2>
             <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
-              Join thousands of authors who trust Folio to bring their stories to life.
+              Join thousands of authors who trust Folio AI to bring their stories to life.
             </p>
             <Link
               to="/register"
@@ -464,14 +464,14 @@ const LandingPage = () => {
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-lg font-bold text-primary">
-              <Sparkles className="w-4 h-4" /> Folio
+              <Sparkles className="w-4 h-4" /> Folio AI
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
               <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
               <a href="#" className="hover:text-foreground transition-colors">Terms</a>
               <a href="#" className="hover:text-foreground transition-colors">Support</a>
             </div>
-            <p className="text-sm text-muted-foreground">© 2026 Folio. All rights reserved.</p>
+            <p className="text-sm text-muted-foreground">© 2026 Folio AI. All rights reserved.</p>
           </div>
         </div>
       </footer>

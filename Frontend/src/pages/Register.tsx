@@ -8,7 +8,7 @@ import { register } from "@/lib/api";
 
 const testimonials = [
   {
-    quote: "Folio cut my publishing workflow in half. The export quality is incredible.",
+    quote: "Folio AI cut my publishing workflow in half. The export quality is incredible.",
     name: "Maria Chen",
     title: "Bestselling Author",
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&h=80&fit=crop&crop=face",
@@ -131,7 +131,7 @@ const RegisterPage = () => {
   const rightContent = (
     <div className="flex-1 flex flex-col px-8 sm:px-16 lg:px-20 py-12">
       <Link to="/" className="text-2xl font-bold text-primary mb-12">
-        Folio
+        Folio AI
       </Link>
 
       <motion.div
