@@ -94,6 +94,156 @@ async function runCommand(command: string, args: string[]) {
   });
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function stripMarkupToText(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/h[1-6]>/gi, "\n\n")
+    .replace(/<li>/gi, "- ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .trim();
+}
+
+function formatInlineMarkdown(text: string) {
+  let value = escapeHtml(text);
+
+  value = value.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "<span>[$1]</span>");
+  value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
+  value = value.replace(/`([^`]+)`/g, "<code>$1</code>");
+  value = value.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  value = value.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  value = value.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  value = value.replace(/_([^_]+)_/g, "<em>$1</em>");
+  value = value.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+
+  return value;
+}
+
+function markdownToHtml(value: string) {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const blocks: string[] = [];
+  let paragraphBuffer: string[] = [];
+  let index = 0;
+
+  const flushParagraph = () => {
+    if (paragraphBuffer.length === 0) {
+      return;
+    }
+
+    blocks.push(`<p>${formatInlineMarkdown(paragraphBuffer.join(" "))}</p>`);
+    paragraphBuffer = [];
+  };
+
+  while (index < lines.length) {
+    const rawLine = lines[index];
+    const trimmed = rawLine.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      index += 1;
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      const level = heading[1].length;
+      blocks.push(`<h${level}>${formatInlineMarkdown(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      const items: string[] = [];
+      while (index < lines.length) {
+        const line = lines[index].trim();
+        const item = line.match(/^[-*]\s+(.+)$/);
+        if (!item) {
+          break;
+        }
+        items.push(`<li>${formatInlineMarkdown(item[1])}</li>`);
+        index += 1;
+      }
+      blocks.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      const items: string[] = [];
+      while (index < lines.length) {
+        const line = lines[index].trim();
+        const item = line.match(/^\d+\.\s+(.+)$/);
+        if (!item) {
+          break;
+        }
+        items.push(`<li>${formatInlineMarkdown(item[1])}</li>`);
+        index += 1;
+      }
+      blocks.push(`<ol>${items.join("")}</ol>`);
+      continue;
+    }
+
+    paragraphBuffer.push(trimmed);
+    index += 1;
+  }
+
+  flushParagraph();
+
+  return blocks.length > 0 ? blocks.join("\n") : "<p>This chapter is empty.</p>";
+}
+
+function normalizeChapterContent(content: string) {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return "<p>This chapter is empty.</p>";
+  }
+
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return markdownToHtml(trimmed);
+}
+
+function buildDescriptionText(value: string | null) {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = stripMarkupToText(value);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+const epubCss = `
+  body { font-family: serif; line-height: 1.55; margin: 0; padding: 0; }
+  h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.2em; margin-bottom: 0.5em; }
+  p { margin: 0 0 1em; text-align: justify; }
+  ul, ol { margin: 0 0 1em 1.2em; }
+  li { margin-bottom: 0.35em; }
+  code { font-family: monospace; font-size: 0.95em; }
+  a { text-decoration: underline; }
+`;
+
 export class ExportService {
   private s3Client?: S3Client;
 
@@ -182,6 +332,11 @@ export class ExportService {
             chapters: {
               orderBy: { order: "asc" },
             },
+            user: {
+              select: {
+                name: true,
+              },
+            },
           },
         })
       );
@@ -243,6 +398,9 @@ export class ExportService {
       description: string | null;
       coverUrl: string | null;
       genre: string | null;
+      user: {
+        name: string;
+      };
       chapters: Array<{
         title: string;
         content: string;
@@ -267,6 +425,9 @@ export class ExportService {
       description: string | null;
       coverUrl: string | null;
       genre: string | null;
+      user: {
+        name: string;
+      };
       chapters: Array<{
         title: string;
         content: string;
@@ -276,17 +437,19 @@ export class ExportService {
   ) {
     const outputPath = path.join(workspaceDir, "book.epub");
     const Epub = require("epub-gen");
+    const description = buildDescriptionText(book.description);
     const option = {
-      author: "E-Book Maker",
+      author: book.user.name || "Makia Author",
+      css: epubCss,
       content: book.chapters.map((chapter) => ({
-        data: chapter.content,
-        title: chapter.title,
+        data: normalizeChapterContent(chapter.content),
+        title: chapter.title || "Untitled Chapter",
       })),
       cover: book.coverUrl ?? undefined,
-      description: book.description ?? undefined,
+      description,
       output: outputPath,
-      publisher: "E-Book Maker",
-      title: book.title,
+      publisher: "Makia",
+      title: book.title || "Untitled Book",
     };
 
     await new Epub(option).promise;
@@ -300,6 +463,9 @@ export class ExportService {
       description: string | null;
       coverUrl: string | null;
       genre: string | null;
+      user: {
+        name: string;
+      };
       chapters: Array<{
         title: string;
         content: string;

@@ -14,6 +14,12 @@ import {
 type Format = "pdf" | "epub" | "mobi";
 type ExportStage = "select" | "progress" | "done";
 type PageSize = "a4" | "letter" | "a5";
+type PdfBlockType = "h1" | "h2" | "h3" | "bullet" | "paragraph";
+
+interface PdfBlock {
+  type: PdfBlockType;
+  text: string;
+}
 
 const formats: { id: Format; icon: typeof FileText; name: string; desc: string }[] = [
   { id: "pdf", icon: FileText, name: "PDF", desc: "Best for printing & sharing" },
@@ -21,29 +27,92 @@ const formats: { id: Format; icon: typeof FileText; name: string; desc: string }
   { id: "mobi", icon: Smartphone, name: "MOBI", desc: "Optimized for Kindle" },
 ];
 
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function sanitizeFileName(input: string) {
   return input.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "book";
 }
 
-function toPlainText(input: string) {
-  return input
+function cleanInlineFormatting(value: string) {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .trim();
+}
+
+function normalizeToPlainText(value: string) {
+  return value
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<\/h[1-6]>/gi, "\n\n")
+    .replace(/<\/(p|div|h[1-6]|blockquote)>/gi, "\n\n")
     .replace(/<li>/gi, "- ")
     .replace(/<\/li>/gi, "\n")
     .replace(/<[^>]*>/g, "")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/_([^_]+)_/g, "$1")
-    .replace(/~~([^~]+)~~/g, "$1")
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function parseBlocks(content: string) {
+  const normalized = normalizeToPlainText(content);
+  const lines = normalized.split("\n");
+  const blocks: PdfBlock[] = [];
+  let paragraphBuffer: string[] = [];
+
+  const flushParagraph = () => {
+    if (paragraphBuffer.length === 0) {
+      return;
+    }
+
+    const text = cleanInlineFormatting(paragraphBuffer.join(" "));
+    if (text) {
+      blocks.push({ type: "paragraph", text });
+    }
+    paragraphBuffer = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushParagraph();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      const level = heading[1].length;
+      const text = cleanInlineFormatting(heading[2]);
+      blocks.push({
+        type: level === 1 ? "h1" : level === 2 ? "h2" : "h3",
+        text,
+      });
+      continue;
+    }
+
+    const bullet = line.match(/^([-*]|\d+\.)\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      blocks.push({ type: "bullet", text: cleanInlineFormatting(bullet[2]) });
+      continue;
+    }
+
+    paragraphBuffer.push(line);
+  }
+
+  flushParagraph();
+
+  return blocks.length > 0 ? blocks : [{ type: "paragraph", text: "(No content)" }];
 }
 
 async function fetchImageDataUrl(url: string) {
@@ -82,6 +151,36 @@ function triggerBrowserDownload(url: string, fileName: string) {
   document.body.removeChild(link);
 }
 
+async function downloadRemoteFile(url: string, fileName: string) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("Remote download failed");
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    try {
+      triggerBrowserDownload(blobUrl, fileName);
+    } finally {
+      window.setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+      }, 5000);
+    }
+
+    return;
+  } catch {
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+}
+
 async function createPdf(input: {
   book: ApiBook;
   chapters: ApiChapter[];
@@ -93,116 +192,218 @@ async function createPdf(input: {
   const doc = new jsPDF({
     format: input.pageSize,
     unit: "pt",
+    putOnlyUsedFonts: true,
   });
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 56;
+  const contentTop = 84;
+  const contentBottom = pageHeight - 68;
   const contentWidth = pageWidth - margin * 2;
-  const maxY = pageHeight - margin;
-  let y = margin;
+  const centerX = pageWidth / 2;
+  let y = contentTop;
 
-  const ensurePageSpace = (requiredHeight: number) => {
-    if (y + requiredHeight <= maxY) {
-      return;
-    }
-
+  const startNewPage = () => {
     doc.addPage();
-    y = margin;
+    y = contentTop;
   };
 
-  const writeParagraph = (text: string, fontSize = 12, extraSpacing = 8) => {
-    if (!text.trim()) {
-      y += extraSpacing;
+  const ensurePageSpace = (requiredHeight: number) => {
+    if (y + requiredHeight <= contentBottom) {
       return;
     }
+
+    startNewPage();
+  };
+
+  const writeParagraphLines = (text: string, fontSize: number, lineHeight: number, spacingAfter: number) => {
+    const cleaned = cleanInlineFormatting(text);
+    if (!cleaned) {
+      y += spacingAfter;
+      return;
+    }
+
+    const lines = doc.splitTextToSize(cleaned, contentWidth) as string[];
 
     doc.setFont("times", "normal");
     doc.setFontSize(fontSize);
-    const lines = doc.splitTextToSize(text, contentWidth) as string[];
 
     for (const line of lines) {
-      ensurePageSpace(fontSize + 4);
+      ensurePageSpace(lineHeight);
       doc.text(line, margin, y);
-      y += fontSize + 4;
+      y += lineHeight;
     }
 
-    y += extraSpacing;
+    y += spacingAfter;
   };
+
+  const writeHeading = (text: string, size: number, spacingBefore: number, spacingAfter: number) => {
+    y += spacingBefore;
+    ensurePageSpace(size + spacingAfter + 8);
+    doc.setFont("times", "bold");
+    doc.setFontSize(size);
+    doc.text(cleanInlineFormatting(text), margin, y);
+    y += size + spacingAfter;
+  };
+
+  doc.setFillColor(248, 250, 252);
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
   if (input.includeCover && input.book.coverUrl) {
     try {
       const imageData = await fetchImageDataUrl(input.book.coverUrl);
-      const maxCoverWidth = contentWidth;
-      const maxCoverHeight = pageHeight * 0.45;
       const imageType = imageData.startsWith("data:image/png") ? "PNG" : "JPEG";
-      doc.addImage(imageData, imageType, margin, margin, maxCoverWidth, maxCoverHeight, undefined, "FAST");
-      y = margin + maxCoverHeight + 28;
+      const maxCoverWidth = pageWidth * 0.56;
+      const maxCoverHeight = pageHeight * 0.44;
+      const imageX = (pageWidth - maxCoverWidth) / 2;
+      const imageY = 74;
+      doc.addImage(imageData, imageType, imageX, imageY, maxCoverWidth, maxCoverHeight, undefined, "FAST");
+      y = imageY + maxCoverHeight + 44;
     } catch {
-      // Cover export should not fail because of external image/CORS issues.
+      y = pageHeight * 0.42;
     }
+  } else {
+    y = pageHeight * 0.42;
   }
 
+  doc.setTextColor(15, 23, 42);
   doc.setFont("times", "bold");
-  doc.setFontSize(24);
-  doc.text(input.book.title || "Untitled Book", margin, y);
-  y += 30;
+  doc.setFontSize(30);
+  doc.text(input.book.title || "Untitled Book", centerX, y, { align: "center", maxWidth: pageWidth - 120 });
 
-  if (input.book.description) {
-    writeParagraph(toPlainText(input.book.description), 12, 14);
+  y += 34;
+  if (input.book.genre) {
+    doc.setFont("times", "normal");
+    doc.setFontSize(12);
+    doc.setTextColor(71, 85, 105);
+    doc.text(input.book.genre, centerX, y, { align: "center" });
+    y += 22;
   }
+
+  const description = normalizeToPlainText(input.book.description || "");
+  if (description) {
+    doc.setFont("times", "italic");
+    doc.setFontSize(11);
+    doc.setTextColor(51, 65, 85);
+    const descLines = doc.splitTextToSize(description, pageWidth - 160) as string[];
+    descLines.slice(0, 8).forEach((line) => {
+      doc.text(line, centerX, y, { align: "center" });
+      y += 16;
+    });
+  }
+
+  doc.setFont("times", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Generated by Makia on ${new Date().toLocaleDateString()}`, centerX, pageHeight - 48, { align: "center" });
 
   if (input.includeToc && orderedChapters.length > 0) {
-    ensurePageSpace(40);
-    doc.setFont("times", "bold");
-    doc.setFontSize(16);
-    doc.text("Table of Contents", margin, y);
-    y += 22;
+    startNewPage();
+    doc.setTextColor(15, 23, 42);
+    writeHeading("Table of Contents", 20, 0, 12);
 
     doc.setFont("times", "normal");
     doc.setFontSize(12);
-
     orderedChapters.forEach((chapter, index) => {
-      ensurePageSpace(18);
-      doc.text(`${index + 1}. ${chapter.title || `Chapter ${index + 1}`}`, margin, y);
-      y += 18;
+      ensurePageSpace(20);
+      const chapterLabel = chapter.title || `Chapter ${index + 1}`;
+      doc.text(`${index + 1}. ${cleanInlineFormatting(chapterLabel)}`, margin, y);
+      y += 20;
     });
-
-    doc.addPage();
-    y = margin;
-  } else {
-    doc.addPage();
-    y = margin;
   }
 
-  orderedChapters.forEach((chapter, index) => {
-    ensurePageSpace(30);
-    doc.setFont("times", "bold");
-    doc.setFontSize(18);
-    doc.text(chapter.title || `Chapter ${index + 1}`, margin, y);
-    y += 24;
+  if (orderedChapters.length === 0) {
+    startNewPage();
+    doc.setTextColor(15, 23, 42);
+    writeHeading("No Chapters Yet", 20, 10, 10);
+    writeParagraphLines(
+      "This book currently has no chapters. Add content in the editor and export again.",
+      12,
+      18,
+      0
+    );
+  } else {
+    orderedChapters.forEach((chapter, chapterIndex) => {
+      startNewPage();
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("times", "italic");
+      doc.setFontSize(11);
+      doc.text(`CHAPTER ${chapterIndex + 1}`, margin, y);
+      y += 24;
 
-    const paragraphBlocks = toPlainText(chapter.content).split(/\n{2,}/).map((value) => value.trim());
+      const chapterTitle = chapter.title || `Chapter ${chapterIndex + 1}`;
+      doc.setFont("times", "bold");
+      doc.setFontSize(22);
+      doc.text(cleanInlineFormatting(chapterTitle), margin, y, { maxWidth: contentWidth });
+      y += 30;
 
-    if (paragraphBlocks.length === 0 || (paragraphBlocks.length === 1 && paragraphBlocks[0].length === 0)) {
-      writeParagraph("(No content)", 12, 16);
-    } else {
-      paragraphBlocks.forEach((block) => {
-        writeParagraph(block, 12, 8);
+      const blocks = parseBlocks(chapter.content);
+
+      blocks.forEach((block) => {
+        switch (block.type) {
+          case "h1":
+            writeHeading(block.text, 18, 6, 8);
+            break;
+          case "h2":
+            writeHeading(block.text, 16, 6, 8);
+            break;
+          case "h3":
+            writeHeading(block.text, 14, 4, 6);
+            break;
+          case "bullet": {
+            const bulletIndent = 14;
+            const bulletWidth = contentWidth - bulletIndent;
+            const lines = doc.splitTextToSize(block.text, bulletWidth) as string[];
+
+            doc.setFont("times", "normal");
+            doc.setFontSize(12);
+            lines.forEach((line, index) => {
+              ensurePageSpace(18);
+              if (index === 0) {
+                doc.text("•", margin, y);
+              }
+              doc.text(line, margin + bulletIndent, y);
+              y += 18;
+            });
+            y += 4;
+            break;
+          }
+          default:
+            writeParagraphLines(block.text, 12, 18, 8);
+            break;
+        }
       });
-      y += 8;
-    }
+    });
+  }
 
-    if (index < orderedChapters.length - 1) {
-      doc.addPage();
-      y = margin;
-    }
-  });
+  const totalPages = doc.getNumberOfPages();
+  for (let page = 2; page <= totalPages; page += 1) {
+    doc.setPage(page);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, 44, pageWidth - margin, 44);
+
+    doc.setTextColor(100, 116, 139);
+    doc.setFont("times", "normal");
+    doc.setFontSize(9);
+    doc.text(cleanInlineFormatting(input.book.title || "Untitled Book"), margin, 36, {
+      maxWidth: contentWidth,
+    });
+  }
+
+  for (let page = 1; page <= totalPages; page += 1) {
+    doc.setPage(page);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont("times", "normal");
+    doc.setFontSize(9);
+    doc.text(`${page}`, centerX, pageHeight - 24, { align: "center" });
+  }
 
   doc.setProperties({
     title: input.book.title || "Untitled Book",
     author: "Makia",
-    subject: input.book.description || "Exported book",
+    subject: normalizeToPlainText(input.book.description || "") || "Book export",
   });
 
   const blob = doc.output("blob");
@@ -221,7 +422,7 @@ async function createPdf(input: {
 }
 
 async function pollExportUntilReady(jobId: string) {
-  const maxAttempts = 80;
+  const maxAttempts = 120;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const status = await getBookExportStatus(jobId);
@@ -230,12 +431,10 @@ async function pollExportUntilReady(jobId: string) {
       return status;
     }
 
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, 1500);
-    });
+    await wait(2000);
   }
 
-  throw new Error("Export timed out. Please try again.");
+  throw new Error("Export timed out. The export worker may be offline. Please try again shortly.");
 }
 
 const ExportModal = ({
@@ -257,9 +456,11 @@ const ExportModal = ({
   const [downloadName, setDownloadName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
+  const hasChapters = chapters.length > 0;
+
   const steps = useMemo(() => {
     if (selected === "pdf") {
-      return ["Preparing content", "Laying out pages", "Generating PDF", "Ready to download"];
+      return ["Preparing manuscript", "Composing pages", "Generating PDF", "Ready to download"];
     }
 
     return ["Preparing content", "Submitting export job", "Processing export", "Ready to download"];
@@ -274,9 +475,12 @@ const ExportModal = ({
 
     try {
       setCurrentStep(1);
+      await wait(120);
 
       if (selected === "pdf") {
         setCurrentStep(2);
+        await wait(120);
+
         const name = await createPdf({
           book,
           chapters,
@@ -284,6 +488,7 @@ const ExportModal = ({
           includeToc,
           pageSize,
         });
+
         setDownloadName(name);
         setCurrentStep(4);
         setStage("done");
@@ -293,14 +498,16 @@ const ExportModal = ({
       setCurrentStep(2);
       const format = selected.toUpperCase() as ExportFormat;
       const created = await createBookExport(book.id, format);
+
+      setCurrentStep(3);
       const status = await pollExportUntilReady(created.jobId);
 
       if (status.status === "FAILED") {
-        throw new Error(status.errorMessage || "Export failed");
+        throw new Error(status.errorMessage || `${selected.toUpperCase()} export failed`);
       }
 
       if (!status.fileUrl) {
-        throw new Error("Export completed but no file URL was returned");
+        throw new Error("Export finished but file URL was missing. Please retry.");
       }
 
       setCurrentStep(4);
@@ -330,7 +537,7 @@ const ExportModal = ({
       return;
     }
 
-    triggerBrowserDownload(downloadUrl, downloadName || `${sanitizeFileName(book.title)}.${selected}`);
+    void downloadRemoteFile(downloadUrl, downloadName || `${sanitizeFileName(book.title)}.${selected}`);
   };
 
   return (
@@ -413,8 +620,12 @@ const ExportModal = ({
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">EPUB and MOBI export uses the server worker and may take a moment.</p>
+                <p className="text-sm text-muted-foreground">EPUB and MOBI export runs on the backend worker and can take 10-60 seconds.</p>
               )}
+
+              {!hasChapters ? (
+                <p className="text-xs text-amber-600">This book has no chapters yet. You can still export, but content will be minimal.</p>
+              ) : null}
 
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
