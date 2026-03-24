@@ -18,9 +18,14 @@ const createChapterSchema = z.object({
   content: z.string().default(""),
 });
 
-const updateChapterSchema = z.object({
-  content: z.string(),
-});
+const updateChapterSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    content: z.string().optional(),
+  })
+  .refine((value) => value.title !== undefined || value.content !== undefined, {
+    message: "At least one field is required",
+  });
 
 const reorderChapterSchema = z.object({
   order: z.number().int().min(1),
@@ -97,16 +102,19 @@ export async function chapterRoutes(app: FastifyInstance) {
       const updatedChapter = await tx.chapter.update({
         where: { id },
         data: {
+          title: body.title,
           content: body.content,
         },
       });
 
-      await tx.chapterVersion.create({
-        data: {
-          chapterId: id,
-          content: body.content,
-        },
-      });
+      if (body.content !== undefined) {
+        await tx.chapterVersion.create({
+          data: {
+            chapterId: id,
+            content: body.content,
+          },
+        });
+      }
 
       return updatedChapter;
     });

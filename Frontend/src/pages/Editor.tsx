@@ -66,6 +66,8 @@ const EditorPage = () => {
 
   const [book, setBook] = useState<ApiBook | null>(null);
   const [chapters, setChapters] = useState<ApiChapter[]>([]);
+  const [chapterTitle, setChapterTitle] = useState("");
+  const [lastSavedTitle, setLastSavedTitle] = useState("");
   const [editorHtml, setEditorHtml] = useState("");
   const [lastSavedContent, setLastSavedContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -142,9 +144,13 @@ const EditorPage = () => {
 
   useEffect(() => {
     if (selectedChapter) {
+      setChapterTitle(selectedChapter.title || "");
+      setLastSavedTitle(selectedChapter.title || "");
       setEditorHtml(selectedChapter.content || "");
       setLastSavedContent(selectedChapter.content || "");
     } else {
+      setChapterTitle("");
+      setLastSavedTitle("");
       setEditorHtml("");
       setLastSavedContent("");
     }
@@ -161,7 +167,7 @@ const EditorPage = () => {
       return;
     }
 
-    if (editorHtml === lastSavedContent) {
+    if (editorHtml === lastSavedContent && chapterTitle === lastSavedTitle) {
       return;
     }
 
@@ -169,10 +175,12 @@ const EditorPage = () => {
 
     try {
       const updated = await updateChapter(selectedChapter.id, {
+        title: chapterTitle.trim() || "Untitled Chapter",
         content: editorHtml,
       });
 
       setChapters((prev) => prev.map((chapter) => (chapter.id === updated.id ? updated : chapter)));
+      setLastSavedTitle(updated.title);
       setLastSavedContent(editorHtml);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save chapter");
@@ -182,7 +190,10 @@ const EditorPage = () => {
   };
 
   useEffect(() => {
-    if (!selectedChapter || editorHtml === lastSavedContent) {
+    if (
+      !selectedChapter ||
+      (editorHtml === lastSavedContent && chapterTitle === lastSavedTitle)
+    ) {
       return;
     }
 
@@ -193,14 +204,17 @@ const EditorPage = () => {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [editorHtml, lastSavedContent, selectedChapter]);
+  }, [editorHtml, lastSavedContent, chapterTitle, lastSavedTitle, selectedChapter]);
 
   const handleSelectChapter = async (chapterId: string) => {
     if (chapterId === activeChapter) {
       return;
     }
 
-    if (selectedChapter && editorHtml !== lastSavedContent) {
+    if (
+      selectedChapter &&
+      (editorHtml !== lastSavedContent || chapterTitle !== lastSavedTitle)
+    ) {
       await handleSaveChapter();
     }
 
@@ -223,6 +237,8 @@ const EditorPage = () => {
       const nextChapters = [...chapterEntries, chapter].sort((a, b) => a.order - b.order);
       setChapters(nextChapters);
       setActiveChapter(chapter.id);
+      setChapterTitle(chapter.title);
+      setLastSavedTitle(chapter.title);
       setEditorHtml(chapter.content);
       setLastSavedContent(chapter.content);
     } catch (createError) {
@@ -255,6 +271,8 @@ const EditorPage = () => {
 
       if (activeChapter === chapterId) {
         setActiveChapter(nextChapter?.id ?? "");
+        setChapterTitle(nextChapter?.title ?? "");
+        setLastSavedTitle(nextChapter?.title ?? "");
         setEditorHtml(nextChapter?.content ?? "");
         setLastSavedContent(nextChapter?.content ?? "");
       }
@@ -417,13 +435,24 @@ const EditorPage = () => {
               </div>
 
               {selectedChapter ? (
-                <textarea
-                  value={editorHtml}
-                  onChange={(event) => setEditorHtml(event.target.value)}
-                  onBlur={() => void handleSaveChapter()}
-                  className="w-full px-16 py-12 min-h-[60vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
-                  placeholder="Start writing..."
-                />
+                <>
+                  <div className="px-16 pt-10">
+                    <input
+                      value={chapterTitle}
+                      onChange={(event) => setChapterTitle(event.target.value)}
+                      onBlur={() => void handleSaveChapter()}
+                      className="w-full text-3xl font-bold bg-transparent text-foreground focus:outline-none"
+                      placeholder="Chapter title"
+                    />
+                  </div>
+                  <textarea
+                    value={editorHtml}
+                    onChange={(event) => setEditorHtml(event.target.value)}
+                    onBlur={() => void handleSaveChapter()}
+                    className="w-full px-16 py-8 min-h-[54vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
+                    placeholder="Start writing..."
+                  />
+                </>
               ) : (
                 <div className="px-16 py-12 min-h-[60vh] flex items-center justify-center text-muted-foreground">
                   No chapters yet. Create one to start writing.

@@ -267,7 +267,7 @@ export function createChapter(bookId: string, input: { title: string; content?: 
   });
 }
 
-export function updateChapter(id: string, input: { content: string }) {
+export function updateChapter(id: string, input: { title?: string; content?: string }) {
   return apiFetch<ApiChapter>(`/api/chapters/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
