@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BookOpen, FileText, Users, Sparkles, ArrowRight, Star, Zap, Shield, Globe } from "lucide-react";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 
 const bookCovers = [
   "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=420&fit=crop",
@@ -86,8 +87,8 @@ const LandingPage = () => {
       <nav className="sticky top-0 z-50 bg-card/80 backdrop-blur-lg border-b border-border">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold text-primary flex items-center gap-2">
-            <Sparkles className="w-5 h-5" />
-            Folio
+            <img src={BRAND_LOGO_URL} alt={`${BRAND_NAME} logo`} className="w-5 h-5" />
+            {BRAND_NAME}
           </Link>
           <div className="hidden md:flex items-center gap-8">
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a>
@@ -463,15 +464,15 @@ const LandingPage = () => {
       <footer className="border-t border-border bg-card py-12">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-lg font-bold text-primary">
-              <Sparkles className="w-4 h-4" /> Folio
-            </div>
+            <Link to="/" className="flex items-center gap-2 text-lg font-bold text-primary">
+              <img src={BRAND_LOGO_URL} alt={`${BRAND_NAME} logo`} className="w-4 h-4" /> {BRAND_NAME}
+            </Link>
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
               <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
               <a href="#" className="hover:text-foreground transition-colors">Terms</a>
               <a href="#" className="hover:text-foreground transition-colors">Support</a>
             </div>
-            <p className="text-sm text-muted-foreground">© 2026 Folio. All rights reserved.</p>
+            <p className="text-sm text-muted-foreground">© 2026 {BRAND_NAME}. All rights reserved.</p>
           </div>
         </div>
       </footer>

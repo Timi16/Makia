@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { adminUsers, mockBooks, mockUser } from "@/lib/mockData";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 
 const navItems = [
   { icon: BarChart3, label: "Overview", id: "overview" },
@@ -46,7 +47,10 @@ const AdminPage = () => {
       {/* Sidebar */}
       <div className="w-56 bg-sidebar flex flex-col shrink-0">
         <div className="p-5">
-          <h1 className="text-lg font-bold text-sidebar-foreground">Folio Admin</h1>
+          <Link to="/" className="text-lg font-bold text-sidebar-foreground inline-flex items-center gap-2">
+            <img src={BRAND_LOGO_URL} alt={`${BRAND_NAME} logo`} className="w-5 h-5" />
+            {BRAND_NAME} Admin
+          </Link>
         </div>
         <nav className="flex-1 px-3 space-y-1">
           {navItems.map((item) => (

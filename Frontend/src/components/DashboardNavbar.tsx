@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Search, Bell, ChevronDown, User, CreditCard, LogOut } from "lucide-react";
 
 import { type AuthUser, logout } from "@/lib/api";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 
 interface DashboardNavbarProps {
   user: AuthUser | null;
@@ -47,8 +48,9 @@ const DashboardNavbar = ({ user }: DashboardNavbarProps) => {
 
   return (
     <nav className="sticky top-0 z-50 bg-card border-b border-border h-16 flex items-center px-6">
-      <Link to="/dashboard" className="text-xl font-bold text-primary mr-8">
-        Folio
+      <Link to="/" className="text-xl font-bold text-primary mr-8 inline-flex items-center gap-2">
+        <img src={BRAND_LOGO_URL} alt={`${BRAND_NAME} logo`} className="w-5 h-5" />
+        {BRAND_NAME}
       </Link>
 
       <div className="flex-1 max-w-md mx-auto">

@@ -5,6 +5,7 @@ import { Mail, Eye, EyeOff, BookOpen, FileText, Users, Sparkles } from "lucide-r
 
 import AuthLayout from "@/components/AuthLayout";
 import { login } from "@/lib/api";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 
 const bookCovers = [
   "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop",
@@ -99,8 +100,9 @@ const LoginPage = () => {
 
   const rightContent = (
     <div className="flex-1 flex flex-col px-8 sm:px-16 lg:px-20 py-12">
-      <Link to="/" className="text-2xl font-bold text-primary mb-16">
-        Folio
+      <Link to="/" className="text-2xl font-bold text-primary mb-16 inline-flex items-center gap-2">
+        <img src={BRAND_LOGO_URL} alt={`${BRAND_NAME} logo`} className="w-6 h-6" />
+        {BRAND_NAME}
       </Link>
 
       <motion.div

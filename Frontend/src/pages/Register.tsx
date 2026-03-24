@@ -5,6 +5,7 @@ import { Mail, Eye, EyeOff, User, Star, Quote } from "lucide-react";
 
 import AuthLayout from "@/components/AuthLayout";
 import { register } from "@/lib/api";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 
 const testimonials = [
   {
@@ -130,8 +131,9 @@ const RegisterPage = () => {
 
   const rightContent = (
     <div className="flex-1 flex flex-col px-8 sm:px-16 lg:px-20 py-12">
-      <Link to="/" className="text-2xl font-bold text-primary mb-12">
-        Folio
+      <Link to="/" className="text-2xl font-bold text-primary mb-12 inline-flex items-center gap-2">
+        <img src={BRAND_LOGO_URL} alt={`${BRAND_NAME} logo`} className="w-6 h-6" />
+        {BRAND_NAME}
       </Link>
 
       <motion.div
