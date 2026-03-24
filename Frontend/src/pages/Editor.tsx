@@ -715,7 +715,7 @@ const EditorPage = () => {
         </AnimatePresence>
       </div>
 
-      {showExport && <ExportModal onClose={() => setShowExport(false)} />}
+      {showExport && <ExportModal onClose={() => setShowExport(false)} book={book} chapters={chapterEntries} />}
     </div>
   );
 };

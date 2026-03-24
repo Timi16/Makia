@@ -1,9 +1,19 @@
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { X, Check, FileText, BookOpen, Smartphone } from "lucide-react";
+import { jsPDF } from "jspdf";
+
+import {
+  createBookExport,
+  getBookExportStatus,
+  type ApiBook,
+  type ApiChapter,
+  type ExportFormat,
+} from "@/lib/api";
 
 type Format = "pdf" | "epub" | "mobi";
 type ExportStage = "select" | "progress" | "done";
+type PageSize = "a4" | "letter" | "a5";
 
 const formats: { id: Format; icon: typeof FileText; name: string; desc: string }[] = [
   { id: "pdf", icon: FileText, name: "PDF", desc: "Best for printing & sharing" },
@@ -11,26 +21,317 @@ const formats: { id: Format; icon: typeof FileText; name: string; desc: string }
   { id: "mobi", icon: Smartphone, name: "MOBI", desc: "Optimized for Kindle" },
 ];
 
-const steps = ["Preparing content", "Generating file", "Uploading", "Ready to download"];
+function sanitizeFileName(input: string) {
+  return input.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "book";
+}
 
-const ExportModal = ({ onClose }: { onClose: () => void }) => {
+function toPlainText(input: string) {
+  return input
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/h[1-6]>/gi, "\n\n")
+    .replace(/<li>/gi, "- ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function fetchImageDataUrl(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Failed to fetch cover image");
+  }
+
+  const blob = await response.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Invalid cover data"));
+    };
+
+    reader.onerror = () => {
+      reject(new Error("Failed to parse cover image"));
+    };
+
+    reader.readAsDataURL(blob);
+  });
+}
+
+function triggerBrowserDownload(url: string, fileName: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+async function createPdf(input: {
+  book: ApiBook;
+  chapters: ApiChapter[];
+  includeCover: boolean;
+  includeToc: boolean;
+  pageSize: PageSize;
+}) {
+  const orderedChapters = [...input.chapters].sort((a, b) => a.order - b.order);
+  const doc = new jsPDF({
+    format: input.pageSize,
+    unit: "pt",
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 56;
+  const contentWidth = pageWidth - margin * 2;
+  const maxY = pageHeight - margin;
+  let y = margin;
+
+  const ensurePageSpace = (requiredHeight: number) => {
+    if (y + requiredHeight <= maxY) {
+      return;
+    }
+
+    doc.addPage();
+    y = margin;
+  };
+
+  const writeParagraph = (text: string, fontSize = 12, extraSpacing = 8) => {
+    if (!text.trim()) {
+      y += extraSpacing;
+      return;
+    }
+
+    doc.setFont("times", "normal");
+    doc.setFontSize(fontSize);
+    const lines = doc.splitTextToSize(text, contentWidth) as string[];
+
+    for (const line of lines) {
+      ensurePageSpace(fontSize + 4);
+      doc.text(line, margin, y);
+      y += fontSize + 4;
+    }
+
+    y += extraSpacing;
+  };
+
+  if (input.includeCover && input.book.coverUrl) {
+    try {
+      const imageData = await fetchImageDataUrl(input.book.coverUrl);
+      const maxCoverWidth = contentWidth;
+      const maxCoverHeight = pageHeight * 0.45;
+      const imageType = imageData.startsWith("data:image/png") ? "PNG" : "JPEG";
+      doc.addImage(imageData, imageType, margin, margin, maxCoverWidth, maxCoverHeight, undefined, "FAST");
+      y = margin + maxCoverHeight + 28;
+    } catch {
+      // Cover export should not fail because of external image/CORS issues.
+    }
+  }
+
+  doc.setFont("times", "bold");
+  doc.setFontSize(24);
+  doc.text(input.book.title || "Untitled Book", margin, y);
+  y += 30;
+
+  if (input.book.description) {
+    writeParagraph(toPlainText(input.book.description), 12, 14);
+  }
+
+  if (input.includeToc && orderedChapters.length > 0) {
+    ensurePageSpace(40);
+    doc.setFont("times", "bold");
+    doc.setFontSize(16);
+    doc.text("Table of Contents", margin, y);
+    y += 22;
+
+    doc.setFont("times", "normal");
+    doc.setFontSize(12);
+
+    orderedChapters.forEach((chapter, index) => {
+      ensurePageSpace(18);
+      doc.text(`${index + 1}. ${chapter.title || `Chapter ${index + 1}`}`, margin, y);
+      y += 18;
+    });
+
+    doc.addPage();
+    y = margin;
+  } else {
+    doc.addPage();
+    y = margin;
+  }
+
+  orderedChapters.forEach((chapter, index) => {
+    ensurePageSpace(30);
+    doc.setFont("times", "bold");
+    doc.setFontSize(18);
+    doc.text(chapter.title || `Chapter ${index + 1}`, margin, y);
+    y += 24;
+
+    const paragraphBlocks = toPlainText(chapter.content).split(/\n{2,}/).map((value) => value.trim());
+
+    if (paragraphBlocks.length === 0 || (paragraphBlocks.length === 1 && paragraphBlocks[0].length === 0)) {
+      writeParagraph("(No content)", 12, 16);
+    } else {
+      paragraphBlocks.forEach((block) => {
+        writeParagraph(block, 12, 8);
+      });
+      y += 8;
+    }
+
+    if (index < orderedChapters.length - 1) {
+      doc.addPage();
+      y = margin;
+    }
+  });
+
+  doc.setProperties({
+    title: input.book.title || "Untitled Book",
+    author: "Makia",
+    subject: input.book.description || "Exported book",
+  });
+
+  const blob = doc.output("blob");
+  const fileName = `${sanitizeFileName(input.book.title)}.pdf`;
+  const blobUrl = URL.createObjectURL(blob);
+
+  try {
+    triggerBrowserDownload(blobUrl, fileName);
+  } finally {
+    window.setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+    }, 5000);
+  }
+
+  return fileName;
+}
+
+async function pollExportUntilReady(jobId: string) {
+  const maxAttempts = 80;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const status = await getBookExportStatus(jobId);
+
+    if (status.status === "DONE" || status.status === "FAILED") {
+      return status;
+    }
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 1500);
+    });
+  }
+
+  throw new Error("Export timed out. Please try again.");
+}
+
+const ExportModal = ({
+  onClose,
+  book,
+  chapters,
+}: {
+  onClose: () => void;
+  book: ApiBook;
+  chapters: ApiChapter[];
+}) => {
   const [selected, setSelected] = useState<Format>("pdf");
   const [stage, setStage] = useState<ExportStage>("select");
-  const [currentStep, setCurrentStep] = useState(0);
   const [includeCover, setIncludeCover] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
+  const [pageSize, setPageSize] = useState<PageSize>("a4");
+  const [currentStep, setCurrentStep] = useState(0);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [downloadName, setDownloadName] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (stage === "progress") {
-      const timers = steps.map((_, i) =>
-        setTimeout(() => {
-          setCurrentStep(i + 1);
-          if (i === steps.length - 1) setStage("done");
-        }, (i + 1) * 1200)
-      );
-      return () => timers.forEach(clearTimeout);
+  const steps = useMemo(() => {
+    if (selected === "pdf") {
+      return ["Preparing content", "Laying out pages", "Generating PDF", "Ready to download"];
     }
-  }, [stage]);
+
+    return ["Preparing content", "Submitting export job", "Processing export", "Ready to download"];
+  }, [selected]);
+
+  const startExport = async () => {
+    setStage("progress");
+    setCurrentStep(0);
+    setError(null);
+    setDownloadUrl(null);
+    setDownloadName("");
+
+    try {
+      setCurrentStep(1);
+
+      if (selected === "pdf") {
+        setCurrentStep(2);
+        const name = await createPdf({
+          book,
+          chapters,
+          includeCover,
+          includeToc,
+          pageSize,
+        });
+        setDownloadName(name);
+        setCurrentStep(4);
+        setStage("done");
+        return;
+      }
+
+      setCurrentStep(2);
+      const format = selected.toUpperCase() as ExportFormat;
+      const created = await createBookExport(book.id, format);
+      const status = await pollExportUntilReady(created.jobId);
+
+      if (status.status === "FAILED") {
+        throw new Error(status.errorMessage || "Export failed");
+      }
+
+      if (!status.fileUrl) {
+        throw new Error("Export completed but no file URL was returned");
+      }
+
+      setCurrentStep(4);
+      setDownloadUrl(status.fileUrl);
+      setDownloadName(`${sanitizeFileName(book.title)}.${selected}`);
+      setStage("done");
+    } catch (exportError) {
+      setStage("select");
+      setCurrentStep(0);
+      setError(exportError instanceof Error ? exportError.message : "Export failed");
+    }
+  };
+
+  const handleDownload = () => {
+    if (selected === "pdf") {
+      void createPdf({
+        book,
+        chapters,
+        includeCover,
+        includeToc,
+        pageSize,
+      });
+      return;
+    }
+
+    if (!downloadUrl) {
+      return;
+    }
+
+    triggerBrowserDownload(downloadUrl, downloadName || `${sanitizeFileName(book.title)}.${selected}`);
+  };
 
   return (
     <motion.div
@@ -78,37 +379,47 @@ const ExportModal = ({ onClose }: { onClose: () => void }) => {
                 ))}
               </div>
 
-              <div className="space-y-3">
-                <label className="flex items-center justify-between">
-                  <span className="text-sm text-foreground">Include cover</span>
-                  <button
-                    onClick={() => setIncludeCover(!includeCover)}
-                    className={`w-10 h-6 rounded-full transition-colors relative ${includeCover ? "bg-primary" : "bg-muted"}`}
-                  >
-                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-card shadow transition-all ${includeCover ? "left-5" : "left-1"}`} />
-                  </button>
-                </label>
-                <label className="flex items-center justify-between">
-                  <span className="text-sm text-foreground">Include table of contents</span>
-                  <button
-                    onClick={() => setIncludeToc(!includeToc)}
-                    className={`w-10 h-6 rounded-full transition-colors relative ${includeToc ? "bg-primary" : "bg-muted"}`}
-                  >
-                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-card shadow transition-all ${includeToc ? "left-5" : "left-1"}`} />
-                  </button>
-                </label>
-                <div>
-                  <label className="text-sm text-foreground block mb-1.5">Page size</label>
-                  <select className="w-full px-3 py-2 rounded-xl border border-input bg-card text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option>A4</option>
-                    <option>Letter</option>
-                    <option>A5</option>
-                  </select>
+              {selected === "pdf" ? (
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-foreground">Include cover</span>
+                    <button
+                      onClick={() => setIncludeCover(!includeCover)}
+                      className={`w-10 h-6 rounded-full transition-colors relative ${includeCover ? "bg-primary" : "bg-muted"}`}
+                    >
+                      <span className={`absolute top-1 w-4 h-4 rounded-full bg-card shadow transition-all ${includeCover ? "left-5" : "left-1"}`} />
+                    </button>
+                  </label>
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-foreground">Include table of contents</span>
+                    <button
+                      onClick={() => setIncludeToc(!includeToc)}
+                      className={`w-10 h-6 rounded-full transition-colors relative ${includeToc ? "bg-primary" : "bg-muted"}`}
+                    >
+                      <span className={`absolute top-1 w-4 h-4 rounded-full bg-card shadow transition-all ${includeToc ? "left-5" : "left-1"}`} />
+                    </button>
+                  </label>
+                  <div>
+                    <label className="text-sm text-foreground block mb-1.5">Page size</label>
+                    <select
+                      value={pageSize}
+                      onChange={(event) => setPageSize(event.target.value as PageSize)}
+                      className="w-full px-3 py-2 rounded-xl border border-input bg-card text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="a4">A4</option>
+                      <option value="letter">Letter</option>
+                      <option value="a5">A5</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">EPUB and MOBI export uses the server worker and may take a moment.</p>
+              )}
+
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
               <button
-                onClick={() => { setStage("progress"); setCurrentStep(0); }}
+                onClick={() => void startExport()}
                 className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press"
               >
                 Start Export
@@ -123,7 +434,7 @@ const ExportModal = ({ onClose }: { onClose: () => void }) => {
                   key={i}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.15 }}
+                  transition={{ delay: i * 0.1 }}
                   className="flex items-center gap-3"
                 >
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
@@ -155,12 +466,24 @@ const ExportModal = ({ onClose }: { onClose: () => void }) => {
               </div>
               <div>
                 <p className="text-lg font-bold text-foreground">Your {selected.toUpperCase()} is ready!</p>
-                <p className="text-sm text-muted-foreground">2.4 MB</p>
+                {downloadName ? <p className="text-sm text-muted-foreground">{downloadName}</p> : null}
               </div>
-              <button className="w-full py-3 rounded-xl bg-success text-success-foreground font-medium shadow-sm hover:scale-[1.02] btn-press">
+              <button
+                onClick={handleDownload}
+                className="w-full py-3 rounded-xl bg-success text-success-foreground font-medium shadow-sm hover:scale-[1.02] btn-press"
+              >
                 Download {selected.toUpperCase()}
               </button>
-              <button onClick={() => setStage("select")} className="text-sm text-primary hover:underline">
+              <button
+                onClick={() => {
+                  setStage("select");
+                  setCurrentStep(0);
+                  setDownloadUrl(null);
+                  setDownloadName("");
+                  setError(null);
+                }}
+                className="text-sm text-primary hover:underline"
+              >
                 Export another format
               </button>
             </div>

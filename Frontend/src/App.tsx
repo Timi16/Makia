@@ -38,22 +38,22 @@ const App = () => {
     let active = true;
 
     const bootstrapAuth = async () => {
-      if (getAccessToken()) {
-        if (active) {
-          setAuthed(true);
-          setAuthReady(true);
-        }
-        return;
-      }
+      const hasToken = Boolean(getAccessToken());
 
       try {
+        if (hasToken && active) {
+          setAuthed(true);
+        }
+
         await ensureSession();
         if (active) {
           setAuthed(true);
         }
-      } catch {
+      } catch (error) {
         if (active) {
-          setAuthed(false);
+          const unauthorized =
+            error instanceof Error && error.message.toLowerCase().includes("unauthorized");
+          setAuthed(unauthorized ? false : hasToken);
         }
       } finally {
         if (active) {

@@ -12,6 +12,7 @@ interface PresignUploadInput {
   fileName: string;
   fileType: string;
   bookId: string;
+  assetKind?: "cover" | "image" | "file";
 }
 
 interface ConfirmUploadInput {
@@ -19,6 +20,7 @@ interface ConfirmUploadInput {
   s3Key: string;
   bookId: string;
   fileType: string;
+  assetKind?: "cover" | "image" | "file";
 }
 
 const presignedUrlExpirySeconds = 5 * 60;
@@ -62,7 +64,23 @@ function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
-function inferAssetFolder(fileName: string, fileType: string) {
+function inferAssetFolder(
+  fileName: string,
+  fileType: string,
+  assetKind?: "cover" | "image" | "file"
+) {
+  if (assetKind === "cover") {
+    return "covers";
+  }
+
+  if (assetKind === "image") {
+    return "images";
+  }
+
+  if (assetKind === "file") {
+    return "files";
+  }
+
   if (fileType.startsWith("image/")) {
     return /cover/i.test(fileName) ? "covers" : "images";
   }
@@ -70,7 +88,26 @@ function inferAssetFolder(fileName: string, fileType: string) {
   return "files";
 }
 
-function getResizeOptions(fileName: string, fileType: string) {
+function getResizeOptions(input: {
+  fileName: string;
+  fileType: string;
+  s3Key: string;
+  assetKind?: "cover" | "image" | "file";
+}) {
+  if (input.assetKind === "cover" || /\/covers\//i.test(input.s3Key)) {
+    return {
+      fit: "inside" as const,
+      height: 1200,
+      width: 800,
+    };
+  }
+
+  if (input.assetKind === "file") {
+    return null;
+  }
+
+  const { fileName, fileType } = input;
+
   if (!fileType.startsWith("image/")) {
     return null;
   }
@@ -108,9 +145,9 @@ export class StorageService {
   private s3Client?: S3Client;
 
   public async createPresignedUpload(input: PresignUploadInput) {
-    const { fileName, fileType, userId, bookId } = input;
+    const { fileName, fileType, userId, bookId, assetKind } = input;
     const extension = path.extname(fileName);
-    const assetFolder = inferAssetFolder(fileName, fileType);
+    const assetFolder = inferAssetFolder(fileName, fileType, assetKind);
     const normalizedName = sanitizeFileName(path.basename(fileName, extension));
     const s3Key = `users/${userId}/books/${bookId}/${assetFolder}/${uuidv4()}-${normalizedName}${extension}`;
 
@@ -134,7 +171,7 @@ export class StorageService {
   }
 
   public async confirmUpload(input: ConfirmUploadInput) {
-    const { bookId, fileType, s3Key, userId } = input;
+    const { bookId, fileType, s3Key, userId, assetKind } = input;
     const cdnUrl = getCdnUrl(s3Key);
 
     await withUserRls(userId, async (tx) => {
@@ -160,6 +197,7 @@ export class StorageService {
 
     if (fileType.startsWith("image/")) {
       void this.resizeImageVariant({
+        assetKind,
         fileName: s3Key,
         fileType,
         s3Key,
@@ -183,11 +221,12 @@ export class StorageService {
   }
 
   private async resizeImageVariant(input: {
+    assetKind?: "cover" | "image" | "file";
     fileName: string;
     fileType: string;
     s3Key: string;
   }) {
-    const resizeOptions = getResizeOptions(input.fileName, input.fileType);
+    const resizeOptions = getResizeOptions(input);
 
     if (!resizeOptions) {
       return;

@@ -8,12 +8,14 @@ const presignSchema = z.object({
   fileName: z.string().min(1).max(255),
   fileType: z.string().min(1).max(255),
   bookId: z.uuid(),
+  assetKind: z.enum(["cover", "image", "file"]).optional(),
 });
 
 const confirmSchema = z.object({
   s3Key: z.string().min(1),
   bookId: z.uuid(),
   fileType: z.string().min(1).max(255),
+  assetKind: z.enum(["cover", "image", "file"]).optional(),
 });
 
 export async function storageRoutes(app: FastifyInstance) {

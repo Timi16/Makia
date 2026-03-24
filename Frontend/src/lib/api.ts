@@ -48,6 +48,19 @@ export interface ApiChapter {
   updatedAt: string;
 }
 
+export type ExportFormat = "EPUB" | "MOBI";
+export type ExportJobStatus = "QUEUED" | "PROCESSING" | "DONE" | "FAILED";
+
+interface CreateExportResponse {
+  jobId: string;
+}
+
+export interface ExportStatusResponse {
+  status: ExportJobStatus;
+  fileUrl: string | null;
+  errorMessage: string | null;
+}
+
 const ACCESS_TOKEN_KEY = "makia_access_token";
 const USER_KEY = "makia_user";
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:4000";
@@ -310,6 +323,20 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+export function createBookExport(bookId: string, format: ExportFormat) {
+  return apiFetch<CreateExportResponse>("/api/export", {
+    method: "POST",
+    body: JSON.stringify({
+      bookId,
+      format,
+    }),
+  });
+}
+
+export function getBookExportStatus(jobId: string) {
+  return apiFetch<ExportStatusResponse>(`/api/export/${jobId}/status`);
+}
+
 export async function uploadBookCover(bookId: string, file: File) {
   const presign = await apiFetch<PresignUploadResponse>("/api/storage/presign", {
     method: "POST",
@@ -317,6 +344,7 @@ export async function uploadBookCover(bookId: string, file: File) {
       fileName: file.name || "cover-upload",
       fileType: file.type || "image/jpeg",
       bookId,
+      assetKind: "cover",
     }),
   });
 
@@ -338,6 +366,7 @@ export async function uploadBookCover(bookId: string, file: File) {
       s3Key: presign.s3Key,
       bookId,
       fileType: file.type || "image/jpeg",
+      assetKind: "cover",
     }),
   });
 
