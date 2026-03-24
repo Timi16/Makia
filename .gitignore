@@ -3,5 +3,4 @@ Backend/dist/
 Backend/.env
 Backend/coverage/
 Backend/tmp/
-*.log
 .DS_Store
