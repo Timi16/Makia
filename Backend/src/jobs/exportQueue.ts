@@ -6,7 +6,7 @@ export interface ExportQueuePayload {
   jobId: string;
   bookId: string;
   userId: string;
-  format: "PDF" | "EPUB" | "MOBI";
+  format: "EPUB" | "MOBI";
 }
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";

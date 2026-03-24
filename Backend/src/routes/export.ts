@@ -6,7 +6,7 @@ import { exportService } from "../services/exportService";
 
 const createExportSchema = z.object({
   bookId: z.uuid(),
-  format: z.enum(["PDF", "EPUB", "MOBI"]),
+  format: z.enum(["EPUB", "MOBI"]),
 });
 
 const paramsSchema = z.object({

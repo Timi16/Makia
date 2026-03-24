@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { v4 as uuidv4 } from "uuid";
-import puppeteer from "puppeteer";
 
 import { exportQueue, type ExportQueuePayload } from "../jobs/exportQueue";
 import { withUserRls } from "../lib/rls";
@@ -14,7 +13,7 @@ import { AppError } from "../middleware/errorHandler";
 interface CreateExportInput {
   userId: string;
   bookId: string;
-  format: "PDF" | "EPUB" | "MOBI";
+  format: "EPUB" | "MOBI";
 }
 
 interface ExportStatusInput {
@@ -53,23 +52,12 @@ function getCdnUrl(s3Key: string) {
   return `https://${bucket}.s3.${region}.amazonaws.com/${s3Key}`;
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 function createS3Client() {
   return new S3Client(getAwsConfig());
 }
 
 function getFileExtension(format: ExportFormat) {
   switch (format) {
-    case ExportFormat.PDF:
-      return "pdf";
     case ExportFormat.EPUB:
       return "epub";
     case ExportFormat.MOBI:
@@ -77,6 +65,10 @@ function getFileExtension(format: ExportFormat) {
     default:
       return "bin";
   }
+}
+
+function isSupportedExportFormat(format: ExportFormat): format is "EPUB" | "MOBI" {
+  return format === ExportFormat.EPUB || format === ExportFormat.MOBI;
 }
 
 async function runCommand(command: string, args: string[]) {
@@ -133,6 +125,10 @@ export class ExportService {
         },
       });
     });
+
+    if (!isSupportedExportFormat(exportJob.format)) {
+      throw new AppError(400, "Unsupported export format. Use EPUB or MOBI.");
+    }
 
     await exportQueue.add(
       "export",
@@ -256,54 +252,13 @@ export class ExportService {
     workspaceDir: string;
   }) {
     switch (input.format) {
-      case ExportFormat.PDF:
-        return this.generatePdf(input.book, input.workspaceDir);
       case ExportFormat.EPUB:
         return this.generateEpub(input.book, input.workspaceDir);
       case ExportFormat.MOBI:
         return this.generateMobi(input.book, input.workspaceDir);
       default:
-        throw new AppError(400, "Unsupported export format");
+        throw new AppError(400, "Unsupported export format. Use EPUB or MOBI.");
     }
-  }
-
-  private async generatePdf(
-    book: {
-      title: string;
-      description: string | null;
-      chapters: Array<{
-        title: string;
-        content: string;
-      }>;
-    },
-    workspaceDir: string
-  ) {
-    const html = this.renderBookHtml(book);
-    const outputPath = path.join(workspaceDir, "book.pdf");
-    const browser = await puppeteer.launch({
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      headless: true,
-    });
-
-    try {
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
-      await page.pdf({
-        format: "A4",
-        margin: {
-          top: "24mm",
-          right: "18mm",
-          bottom: "24mm",
-          left: "18mm",
-        },
-        path: outputPath,
-        printBackground: true,
-      });
-    } finally {
-      await browser.close();
-    }
-
-    return outputPath;
   }
 
   private async generateEpub(
@@ -361,69 +316,6 @@ export class ExportService {
     return mobiPath;
   }
 
-  private renderBookHtml(book: {
-    title: string;
-    description: string | null;
-    chapters: Array<{
-      title: string;
-      content: string;
-    }>;
-  }) {
-    const sections = book.chapters
-      .map(
-        (chapter) => `
-          <section class="chapter">
-            <h2>${escapeHtml(chapter.title)}</h2>
-            <div class="content">${chapter.content}</div>
-          </section>
-        `
-      )
-      .join("");
-
-    return `
-      <!doctype html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(book.title)}</title>
-          <style>
-            body {
-              color: #1f2933;
-              font-family: Georgia, serif;
-              line-height: 1.7;
-              margin: 0 auto;
-              max-width: 720px;
-              padding: 48px 32px;
-            }
-
-            h1,
-            h2 {
-              font-family: "Palatino Linotype", serif;
-              line-height: 1.2;
-            }
-
-            .description {
-              color: #52606d;
-              margin-bottom: 40px;
-            }
-
-            .chapter {
-              break-inside: avoid;
-              margin-bottom: 32px;
-            }
-          </style>
-        </head>
-        <body>
-          <header>
-            <h1>${escapeHtml(book.title)}</h1>
-            ${book.description ? `<p class="description">${escapeHtml(book.description)}</p>` : ""}
-          </header>
-          ${sections}
-        </body>
-      </html>
-    `;
-  }
-
   private async uploadExportFile(
     s3Key: string,
     fileBuffer: Buffer,
@@ -445,8 +337,6 @@ export class ExportService {
 
   private getContentType(format: ExportFormat) {
     switch (format) {
-      case ExportFormat.PDF:
-        return "application/pdf";
       case ExportFormat.EPUB:
         return "application/epub+zip";
       case ExportFormat.MOBI:

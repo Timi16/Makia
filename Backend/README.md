@@ -1,6 +1,6 @@
 # E-Book Maker Backend
 
-Production-ready backend for the E-Book Maker app built with Fastify, TypeScript, Prisma, PostgreSQL, Redis, BullMQ, AWS S3, JWT auth, Yjs realtime collaboration, Sharp image processing, Puppeteer PDF export, `epub-gen`, and Calibre CLI MOBI conversion.
+Production-ready backend for the E-Book Maker app built with Fastify, TypeScript, Prisma, PostgreSQL, Redis, BullMQ, AWS S3, JWT auth, Yjs realtime collaboration, Sharp image processing, `epub-gen`, and Calibre CLI MOBI conversion.
 
 ## Requirements
 
@@ -8,7 +8,6 @@ Production-ready backend for the E-Book Maker app built with Fastify, TypeScript
 - Docker Desktop or Docker Engine with Compose
 - AWS credentials with S3 access
 - Calibre CLI available as `ebook-convert` or configured via `CALIBRE_EBOOK_CONVERT_BIN`
-- Chromium available for Puppeteer, or set `PUPPETEER_EXECUTABLE_PATH`
 
 ## Run Locally
 
@@ -134,9 +133,6 @@ npm run pm2:stop
 `COOKIE_DOMAIN`
 : Cookie domain for refresh tokens. Leave as `localhost` for local development.
 
-`PUPPETEER_EXECUTABLE_PATH`
-: Optional absolute path to a Chromium/Chrome binary for Puppeteer.
-
 `CALIBRE_EBOOK_CONVERT_BIN`
 : Optional path to the Calibre `ebook-convert` executable.
 
@@ -163,11 +159,11 @@ npm run pm2:stop
 
 - Keep "Block all public access" enabled.
 - Configure bucket CORS to allow `PUT` from your frontend domain.
-- Attach a CloudFront distribution if you want CDN-backed URLs.
+- CloudFront is optional; if unset, the backend returns direct S3 object URLs.
 - Grant the backend IAM credentials permission for `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` as needed.
 - Uploads are stored under user/book-specific prefixes.
 - Resized image variants are written under the `resized/` prefix.
-- Exported files are written under the `exports/` prefix.
+- Exported files are written under the `exports/` prefix (EPUB/MOBI).
 
 ## Notes
 
