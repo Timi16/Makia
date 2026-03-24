@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -14,6 +14,7 @@ import {
   deleteChapter,
   getBook,
   getChapters,
+  uploadBookCover,
   updateChapter,
   type ApiBook,
   type ApiChapter,
@@ -71,9 +72,26 @@ const EditorPage = () => {
   const [editorHtml, setEditorHtml] = useState("");
   const [lastSavedContent, setLastSavedContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [deletingChapterId, setDeletingChapterId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef(-1);
+
+  const pushHistory = (nextValue: string) => {
+    const current = historyRef.current[historyIndexRef.current];
+    if (current === nextValue) {
+      return;
+    }
+
+    const trimmed = historyRef.current.slice(0, historyIndexRef.current + 1);
+    trimmed.push(nextValue);
+    historyRef.current = trimmed.slice(-200);
+    historyIndexRef.current = historyRef.current.length - 1;
+  };
 
   useEffect(() => {
     if (!bookId) {
@@ -148,11 +166,15 @@ const EditorPage = () => {
       setLastSavedTitle(selectedChapter.title || "");
       setEditorHtml(selectedChapter.content || "");
       setLastSavedContent(selectedChapter.content || "");
+      historyRef.current = [selectedChapter.content || ""];
+      historyIndexRef.current = 0;
     } else {
       setChapterTitle("");
       setLastSavedTitle("");
       setEditorHtml("");
       setLastSavedContent("");
+      historyRef.current = [""];
+      historyIndexRef.current = 0;
     }
   }, [selectedChapter]);
 
@@ -160,6 +182,140 @@ const EditorPage = () => {
     setActiveTools((prev) =>
       prev.includes(label) ? prev.filter((t) => t !== label) : [...prev, label]
     );
+  };
+
+  const applyTextEdit = (
+    updater: (input: {
+      value: string;
+      selectionStart: number;
+      selectionEnd: number;
+    }) => { value: string; selectionStart: number; selectionEnd: number }
+  ) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const result = updater({
+      value: editorHtml,
+      selectionStart: textarea.selectionStart,
+      selectionEnd: textarea.selectionEnd,
+    });
+
+    setEditorHtml(result.value);
+    pushHistory(result.value);
+
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
+    });
+  };
+
+  const wrapSelection = (prefix: string, suffix: string, fallback: string) => {
+    applyTextEdit(({ value, selectionStart, selectionEnd }) => {
+      const selected = value.slice(selectionStart, selectionEnd) || fallback;
+      const next = `${value.slice(0, selectionStart)}${prefix}${selected}${suffix}${value.slice(selectionEnd)}`;
+      const start = selectionStart + prefix.length;
+      const end = start + selected.length;
+      return { value: next, selectionStart: start, selectionEnd: end };
+    });
+  };
+
+  const prefixSelectedLines = (mapper: (line: string, index: number) => string) => {
+    applyTextEdit(({ value, selectionStart, selectionEnd }) => {
+      const blockStart = value.lastIndexOf("\n", Math.max(0, selectionStart - 1)) + 1;
+      const endBoundary = value.indexOf("\n", selectionEnd);
+      const blockEnd = endBoundary === -1 ? value.length : endBoundary;
+      const selectedBlock = value.slice(blockStart, blockEnd);
+      const lines = selectedBlock.split("\n");
+      const mapped = lines.map((line, index) => mapper(line, index)).join("\n");
+      const next = `${value.slice(0, blockStart)}${mapped}${value.slice(blockEnd)}`;
+      return {
+        value: next,
+        selectionStart: blockStart,
+        selectionEnd: blockStart + mapped.length,
+      };
+    });
+  };
+
+  const handleUndo = () => {
+    if (historyIndexRef.current <= 0) {
+      return;
+    }
+
+    historyIndexRef.current -= 1;
+    const previous = historyRef.current[historyIndexRef.current] ?? "";
+    setEditorHtml(previous);
+  };
+
+  const handleRedo = () => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) {
+      return;
+    }
+
+    historyIndexRef.current += 1;
+    const next = historyRef.current[historyIndexRef.current] ?? "";
+    setEditorHtml(next);
+  };
+
+  const handleToolAction = (label: string) => {
+    setActiveTools((prev) =>
+      prev.includes(label) ? prev : [...prev, label]
+    );
+
+    switch (label) {
+      case "Bold":
+        wrapSelection("**", "**", "bold text");
+        break;
+      case "Italic":
+        wrapSelection("*", "*", "italic text");
+        break;
+      case "Underline":
+        wrapSelection("<u>", "</u>", "underlined text");
+        break;
+      case "Strikethrough":
+        wrapSelection("~~", "~~", "strikethrough text");
+        break;
+      case "H1":
+        prefixSelectedLines((line) => `# ${line.replace(/^#+\s*/, "")}`);
+        break;
+      case "H2":
+        prefixSelectedLines((line) => `## ${line.replace(/^#+\s*/, "")}`);
+        break;
+      case "H3":
+        prefixSelectedLines((line) => `### ${line.replace(/^#+\s*/, "")}`);
+        break;
+      case "Bullet List":
+        prefixSelectedLines((line) => `- ${line.replace(/^[-*]\s+/, "")}`);
+        break;
+      case "Numbered List":
+        prefixSelectedLines((line, index) => `${index + 1}. ${line.replace(/^\d+\.\s+/, "")}`);
+        break;
+      case "Image":
+        applyTextEdit(({ value, selectionStart, selectionEnd }) => {
+          const snippet = "\n![Image description](https://example.com/image.jpg)\n";
+          const next = `${value.slice(0, selectionStart)}${snippet}${value.slice(selectionEnd)}`;
+          const cursor = selectionStart + snippet.length;
+          return { value: next, selectionStart: cursor, selectionEnd: cursor };
+        });
+        break;
+      case "Table":
+        applyTextEdit(({ value, selectionStart, selectionEnd }) => {
+          const snippet = "\n| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n";
+          const next = `${value.slice(0, selectionStart)}${snippet}${value.slice(selectionEnd)}`;
+          const cursor = selectionStart + snippet.length;
+          return { value: next, selectionStart: cursor, selectionEnd: cursor };
+        });
+        break;
+      case "Undo":
+        handleUndo();
+        break;
+      case "Redo":
+        handleRedo();
+        break;
+      default:
+        toggleTool(label);
+    }
   };
 
   const handleSaveChapter = async () => {
@@ -280,6 +436,27 @@ const EditorPage = () => {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete chapter");
     } finally {
       setDeletingChapterId(null);
+    }
+  };
+
+  const handleUploadCover = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !book) {
+      return;
+    }
+
+    setIsUploadingCover(true);
+    setError(null);
+
+    try {
+      const coverUrl = await uploadBookCover(book.id, file);
+      setBook((prev) => (prev ? { ...prev, coverUrl } : prev));
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Failed to upload cover");
+    } finally {
+      setIsUploadingCover(false);
     }
   };
 
@@ -418,7 +595,7 @@ const EditorPage = () => {
                     {group.map((tool) => (
                       <button
                         key={tool.label}
-                        onClick={() => toggleTool(tool.label)}
+                        onClick={() => handleToolAction(tool.label)}
                         className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                           activeTools.includes(tool.label)
                             ? "bg-primary/10 text-primary"
@@ -446,8 +623,12 @@ const EditorPage = () => {
                     />
                   </div>
                   <textarea
+                    ref={textareaRef}
                     value={editorHtml}
-                    onChange={(event) => setEditorHtml(event.target.value)}
+                    onChange={(event) => {
+                      setEditorHtml(event.target.value);
+                      pushHistory(event.target.value);
+                    }}
                     onBlur={() => void handleSaveChapter()}
                     className="w-full px-16 py-8 min-h-[54vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
                     placeholder="Start writing..."
@@ -485,6 +666,20 @@ const EditorPage = () => {
                     alt=""
                     className="w-full h-48 object-cover rounded-xl mb-2"
                   />
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleUploadCover}
+                  />
+                  <button
+                    onClick={() => coverInputRef.current?.click()}
+                    disabled={isUploadingCover}
+                    className="text-sm text-primary hover:underline disabled:opacity-60"
+                  >
+                    {isUploadingCover ? "Uploading cover..." : "Upload cover"}
+                  </button>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">Description</label>

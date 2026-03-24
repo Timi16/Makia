@@ -16,6 +16,16 @@ interface ApiErrorPayload {
   message?: string;
 }
 
+interface PresignUploadResponse {
+  presignedUrl: string;
+  s3Key: string;
+  cdnUrl: string;
+}
+
+interface ConfirmUploadResponse {
+  cdnUrl: string;
+}
+
 export interface ApiBook {
   id: string;
   title: string;
@@ -250,6 +260,22 @@ export function createBook(input: {
   });
 }
 
+export function updateBook(
+  id: string,
+  input: {
+    title?: string;
+    description?: string;
+    coverUrl?: string;
+    genre?: string;
+    tags?: string[];
+  }
+) {
+  return apiFetch<ApiBook>(`/api/books/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function deleteBook(id: string) {
   return apiFetch<void>(`/api/books/${id}`, {
     method: "DELETE",
@@ -282,4 +308,42 @@ export function deleteChapter(id: string) {
 
 export function getApiBaseUrl() {
   return API_BASE_URL;
+}
+
+export async function uploadBookCover(bookId: string, file: File) {
+  const presign = await apiFetch<PresignUploadResponse>("/api/storage/presign", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: file.name || "cover-upload",
+      fileType: file.type || "image/jpeg",
+      bookId,
+    }),
+  });
+
+  const uploadResponse = await fetch(presign.presignedUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error("Failed to upload cover file");
+  }
+
+  const confirm = await apiFetch<ConfirmUploadResponse>("/api/storage/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      s3Key: presign.s3Key,
+      bookId,
+      fileType: file.type || "image/jpeg",
+    }),
+  });
+
+  const updatedBook = await updateBook(bookId, {
+    coverUrl: confirm.cdnUrl,
+  });
+
+  return updatedBook.coverUrl ?? confirm.cdnUrl;
 }
