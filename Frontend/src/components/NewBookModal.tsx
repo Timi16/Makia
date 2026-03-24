@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ChangeEvent, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Upload } from "lucide-react";
 import { genres, coverSuggestions } from "@/lib/mockData";
@@ -10,16 +10,54 @@ interface NewBookModalProps {
     description?: string;
     genre?: string;
     coverUrl?: string;
+    coverFile?: File;
   }) => Promise<void>;
 }
 
 const NewBookModal = ({ onClose, onCreate }: NewBookModalProps) => {
   const [selectedCover, setSelectedCover] = useState<number | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
   const [selectedGenre, setSelectedGenre] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const activeCover = useMemo(() => {
+    if (coverPreviewUrl) {
+      return coverPreviewUrl;
+    }
+
+    if (selectedCover !== null) {
+      return coverSuggestions[selectedCover];
+    }
+
+    return null;
+  }, [coverPreviewUrl, selectedCover]);
+
+  const handleSelectFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file");
+      return;
+    }
+
+    if (coverPreviewUrl) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+
+    setError(null);
+    setCoverFile(file);
+    setSelectedCover(null);
+    setCoverPreviewUrl(URL.createObjectURL(file));
+  };
 
   const handleCreate = async () => {
     if (!title.trim()) {
@@ -36,7 +74,11 @@ const NewBookModal = ({ onClose, onCreate }: NewBookModalProps) => {
         description: description.trim() || undefined,
         genre: selectedGenre || undefined,
         coverUrl: selectedCover !== null ? coverSuggestions[selectedCover] : undefined,
+        coverFile: coverFile ?? undefined,
       });
+      if (coverPreviewUrl) {
+        URL.revokeObjectURL(coverPreviewUrl);
+      }
       onClose();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create book");
@@ -71,11 +113,23 @@ const NewBookModal = ({ onClose, onCreate }: NewBookModalProps) => {
           <div className="p-6 space-y-6">
             <div>
               <label className="text-sm font-medium text-foreground mb-3 block">Choose a cover</label>
+              {activeCover ? (
+                <div className="mb-3 rounded-xl overflow-hidden border border-border">
+                  <img src={activeCover} alt="Selected cover" className="w-full h-40 object-cover" />
+                </div>
+              ) : null}
               <div className="grid grid-cols-3 gap-3">
                 {coverSuggestions.map((cover, i) => (
                   <button
                     key={i}
-                    onClick={() => setSelectedCover(i)}
+                    onClick={() => {
+                      setSelectedCover(i);
+                      setCoverFile(null);
+                      if (coverPreviewUrl) {
+                        URL.revokeObjectURL(coverPreviewUrl);
+                        setCoverPreviewUrl(null);
+                      }
+                    }}
                     className={`relative rounded-xl overflow-hidden h-32 transition-all duration-200 ${
                       selectedCover === i ? "ring-2 ring-primary ring-offset-2" : "hover:opacity-80"
                     }`}
@@ -84,9 +138,10 @@ const NewBookModal = ({ onClose, onCreate }: NewBookModalProps) => {
                   </button>
                 ))}
               </div>
-              <button className="flex items-center gap-2 mt-3 text-sm text-primary hover:underline">
-                <Upload className="w-4 h-4" /> Upload custom cover
-              </button>
+              <label className="flex items-center gap-2 mt-3 text-sm text-primary hover:underline cursor-pointer">
+                <Upload className="w-4 h-4" /> {coverFile ? "Change custom cover" : "Upload custom cover"}
+                <input type="file" accept="image/*" className="hidden" onChange={handleSelectFile} />
+              </label>
             </div>
 
             <div>
