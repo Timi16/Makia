@@ -1,11 +1,18 @@
 import { useState, useRef, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Search, Bell, ChevronDown, User, CreditCard, LogOut } from "lucide-react";
-import { mockUser } from "@/lib/mockData";
 
-const DashboardNavbar = () => {
+import { type AuthUser, logout } from "@/lib/api";
+
+interface DashboardNavbarProps {
+  user: AuthUser | null;
+}
+
+const DashboardNavbar = ({ user }: DashboardNavbarProps) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -16,6 +23,27 @@ const DashboardNavbar = () => {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  const handleLogout = async () => {
+    if (loggingOut) {
+      return;
+    }
+
+    setLoggingOut(true);
+
+    try {
+      await logout();
+      navigate("/login");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const initials = user?.name
+    .split(" ")
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+    .slice(0, 2);
 
   return (
     <nav className="sticky top-0 z-50 bg-card border-b border-border h-16 flex items-center px-6">
@@ -45,19 +73,17 @@ const DashboardNavbar = () => {
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-muted transition-colors"
           >
-            <img
-              src={mockUser.avatar}
-              alt={mockUser.name}
-              className="w-8 h-8 rounded-full object-cover"
-            />
+            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center">
+              {initials || "U"}
+            </div>
             <ChevronDown className="w-4 h-4 text-muted-foreground" />
           </button>
 
           {dropdownOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-card rounded-xl border border-border shadow-lg py-2 animate-scale-in">
               <div className="px-4 py-3 border-b border-border">
-                <p className="text-sm font-medium text-foreground">{mockUser.name}</p>
-                <p className="text-xs text-muted-foreground">{mockUser.email}</p>
+                <p className="text-sm font-medium text-foreground">{user?.name ?? "Unknown user"}</p>
+                <p className="text-xs text-muted-foreground">{user?.email ?? "No email"}</p>
               </div>
               <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors">
                 <User className="w-4 h-4" /> Profile Settings
@@ -66,12 +92,14 @@ const DashboardNavbar = () => {
                 <CreditCard className="w-4 h-4" /> Billing
               </button>
               <div className="border-t border-border my-1" />
-              <Link
-                to="/login"
-                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors"
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors disabled:opacity-60"
               >
-                <LogOut className="w-4 h-4" /> Logout
-              </Link>
+                <LogOut className="w-4 h-4" /> {loggingOut ? "Logging out..." : "Logout"}
+              </button>
             </div>
           )}
         </div>

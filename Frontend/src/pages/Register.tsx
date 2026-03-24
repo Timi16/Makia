@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Mail, Eye, EyeOff, User, Star, Quote } from "lucide-react";
+
 import AuthLayout from "@/components/AuthLayout";
+import { register } from "@/lib/api";
 
 const testimonials = [
   {
@@ -34,15 +36,47 @@ const testimonials = [
 
 const RegisterPage = () => {
   const [showPassword, setShowPassword] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [agreedTerms, setAgreedTerms] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const strength = useMemo(() => {
     if (password.length === 0) return { level: 0, label: "", color: "" };
-    if (password.length < 6) return { level: 1, label: "Weak", color: "bg-destructive" };
-    if (password.length < 10) return { level: 2, label: "Medium", color: "bg-warning" };
+    if (password.length < 8) return { level: 1, label: "Weak", color: "bg-destructive" };
+    if (password.length < 12) return { level: 2, label: "Medium", color: "bg-warning" };
     return { level: 3, label: "Strong", color: "bg-success" };
   }, [password]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!agreedTerms) {
+      setError("You must accept the terms");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      await register(name, email, password);
+      navigate("/dashboard");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Registration failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const leftContent = (
     <div className="flex flex-col h-full justify-center">
@@ -109,13 +143,16 @@ const RegisterPage = () => {
         <h2 className="text-2xl font-bold text-foreground mb-1">Start writing today</h2>
         <p className="text-muted-foreground mb-8">Free forever. No credit card.</p>
 
-        <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+        <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="relative">
             <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder="Full name"
               className="w-full pl-10 pr-4 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
+              required
             />
           </div>
 
@@ -123,8 +160,11 @@ const RegisterPage = () => {
             <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               className="w-full pl-10 pr-4 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
+              required
             />
           </div>
 
@@ -142,6 +182,7 @@ const RegisterPage = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full pl-10 pr-12 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
+                required
               />
               <button
                 type="button"
@@ -177,8 +218,11 @@ const RegisterPage = () => {
             </div>
             <input
               type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm password"
               className="w-full pl-10 pr-4 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
+              required
             />
           </div>
 
@@ -190,18 +234,20 @@ const RegisterPage = () => {
               className="mt-1 w-4 h-4 rounded border-input text-primary focus:ring-ring"
             />
             <span className="text-sm text-muted-foreground">
-              I agree to the{" "}
-              <button className="text-primary hover:underline">Terms</button> &{" "}
-              <button className="text-primary hover:underline">Privacy Policy</button>
+              I agree to the <button type="button" className="text-primary hover:underline">Terms</button> &{" "}
+              <button type="button" className="text-primary hover:underline">Privacy Policy</button>
             </span>
           </label>
 
-          <Link
-            to="/dashboard"
-            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press flex items-center justify-center"
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press flex items-center justify-center disabled:opacity-60"
           >
-            Create my account
-          </Link>
+            {loading ? "Creating..." : "Create my account"}
+          </button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground mt-8">

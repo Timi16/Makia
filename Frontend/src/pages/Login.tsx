@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Mail, Eye, EyeOff, BookOpen, FileText, Users, Sparkles } from "lucide-react";
+
 import AuthLayout from "@/components/AuthLayout";
+import { login } from "@/lib/api";
 
 const bookCovers = [
   "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop",
@@ -18,6 +20,27 @@ const features = [
 
 const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      await login(email, password);
+      navigate("/dashboard");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const leftContent = (
     <div className="flex flex-col h-full justify-between">
@@ -89,13 +112,16 @@ const LoginPage = () => {
         <h2 className="text-2xl font-bold text-foreground mb-1">Welcome back</h2>
         <p className="text-muted-foreground mb-8">Sign in to your account</p>
 
-        <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+        <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="relative">
             <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               className="w-full pl-10 pr-4 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
+              required
             />
           </div>
 
@@ -108,8 +134,11 @@ const LoginPage = () => {
             </div>
             <input
               type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
               className="w-full pl-10 pr-12 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
+              required
             />
             <button
               type="button"
@@ -120,16 +149,15 @@ const LoginPage = () => {
             </button>
           </div>
 
-          <div className="flex justify-end">
-            <button className="text-sm text-primary hover:underline">Forgot password?</button>
-          </div>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-          <Link
-            to="/dashboard"
-            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press flex items-center justify-center"
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press flex items-center justify-center disabled:opacity-60"
           >
-            Sign in
-          </Link>
+            {loading ? "Signing in..." : "Sign in"}
+          </button>
         </form>
 
         <div className="flex items-center gap-3 my-8">

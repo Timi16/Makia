@@ -5,11 +5,45 @@ import { genres, coverSuggestions } from "@/lib/mockData";
 
 interface NewBookModalProps {
   onClose: () => void;
+  onCreate: (input: {
+    title: string;
+    description?: string;
+    genre?: string;
+    coverUrl?: string;
+  }) => Promise<void>;
 }
 
-const NewBookModal = ({ onClose }: NewBookModalProps) => {
+const NewBookModal = ({ onClose, onCreate }: NewBookModalProps) => {
   const [selectedCover, setSelectedCover] = useState<number | null>(null);
   const [selectedGenre, setSelectedGenre] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    if (!title.trim()) {
+      setError("Title is required");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await onCreate({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        genre: selectedGenre || undefined,
+        coverUrl: selectedCover !== null ? coverSuggestions[selectedCover] : undefined,
+      });
+      onClose();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Failed to create book");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -59,6 +93,8 @@ const NewBookModal = ({ onClose }: NewBookModalProps) => {
               <label className="text-sm font-medium text-foreground mb-1.5 block">Title</label>
               <input
                 type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
                 placeholder="Enter your book title"
                 className="w-full px-4 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200"
               />
@@ -81,17 +117,22 @@ const NewBookModal = ({ onClose }: NewBookModalProps) => {
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Description</label>
               <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 placeholder="What's your book about?"
                 rows={3}
                 className="w-full px-4 py-3 rounded-xl border border-input bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all duration-200 resize-none"
               />
             </div>
 
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
             <button
-              onClick={onClose}
-              className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press"
+              onClick={handleCreate}
+              disabled={submitting}
+              className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium shadow-sm hover:scale-[1.02] btn-press disabled:opacity-60"
             >
-              Create Book
+              {submitting ? "Creating..." : "Create Book"}
             </button>
           </div>
         </motion.div>
