@@ -4,3 +4,9 @@ Backend/.env
 Backend/coverage/
 Backend/tmp/
 .DS_Store
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.env   
+Frontend/coverage/
+Frontend/tmp/   
+.DS_Store

@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if git diff --cached --name-only | grep -qE '(^|/)node_modules/'; then
+  echo "ERROR: node_modules files are staged."
+  echo "Run: git rm -r --cached node_modules"
+  exit 1
+fi
+
+if git ls-files | grep -qE '(^|/)node_modules/'; then
+  echo "ERROR: node_modules is tracked by git."
+  echo "Run: git rm -r --cached node_modules"
+  exit 1
+fi
+
+exit 0
