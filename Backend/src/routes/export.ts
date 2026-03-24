@@ -26,12 +26,19 @@ export async function exportRoutes(app: FastifyInstance) {
     return reply.status(202).send(result);
   });
 
-  app.get("/:jobId/status", async (request) => {
+  app.get("/:jobId/status", async (request, reply) => {
     const { jobId } = paramsSchema.parse(request.params);
 
-    return exportService.getExportStatus({
+    const status = await exportService.getExportStatus({
       jobId,
       userId: request.user.id,
     });
+
+    reply
+      .header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+      .header("Pragma", "no-cache")
+      .header("Expires", "0");
+
+    return status;
   });
 }
