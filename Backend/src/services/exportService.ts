@@ -1,5 +1,6 @@
 import { ExportFormat, ExportStatus } from "@prisma/client";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -20,6 +21,8 @@ interface ExportStatusInput {
   userId: string;
   jobId: string;
 }
+
+const signedDownloadExpirySeconds = 10 * 60;
 
 function getAwsConfig() {
   const region = process.env.AWS_REGION;
@@ -312,6 +315,18 @@ export class ExportService {
       throw new AppError(404, "Export job not found");
     }
 
+    if (exportJob.status === ExportStatus.DONE && exportJob.fileUrl) {
+      const s3Key = this.extractS3KeyFromUrl(exportJob.fileUrl);
+      if (s3Key) {
+        const signedUrl = await this.createSignedDownloadUrl(s3Key);
+
+        return {
+          ...exportJob,
+          fileUrl: signedUrl,
+        };
+      }
+    }
+
     return exportJob;
   }
 
@@ -556,6 +571,31 @@ export class ExportService {
   private getS3Client() {
     this.s3Client ??= createS3Client();
     return this.s3Client;
+  }
+
+  private async createSignedDownloadUrl(s3Key: string) {
+    const { bucket } = getAwsConfig();
+
+    return getSignedUrl(
+      this.getS3Client(),
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: s3Key,
+      }),
+      {
+        expiresIn: signedDownloadExpirySeconds,
+      }
+    );
+  }
+
+  private extractS3KeyFromUrl(fileUrl: string) {
+    try {
+      const parsed = new URL(fileUrl);
+      const key = parsed.pathname.replace(/^\/+/, "");
+      return key.length > 0 ? key : null;
+    } catch {
+      return null;
+    }
   }
 }
 
