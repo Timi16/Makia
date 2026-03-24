@@ -4,13 +4,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, GripVertical, X, Bold, Italic, Underline, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Image, Table,
-  Undo, Redo, Clock, SlidersHorizontal, Download
+  Undo, Redo, Clock, SlidersHorizontal, Download, Trash2
 } from "lucide-react";
 
 import ExportModal from "@/components/ExportModal";
 import { collaborators } from "@/lib/mockData";
 import {
   createChapter,
+  deleteChapter,
   getBook,
   getChapters,
   updateChapter,
@@ -66,7 +67,9 @@ const EditorPage = () => {
   const [book, setBook] = useState<ApiBook | null>(null);
   const [chapters, setChapters] = useState<ApiChapter[]>([]);
   const [editorHtml, setEditorHtml] = useState("");
+  const [lastSavedContent, setLastSavedContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingChapterId, setDeletingChapterId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,6 +143,10 @@ const EditorPage = () => {
   useEffect(() => {
     if (selectedChapter) {
       setEditorHtml(selectedChapter.content || "");
+      setLastSavedContent(selectedChapter.content || "");
+    } else {
+      setEditorHtml("");
+      setLastSavedContent("");
     }
   }, [selectedChapter]);
 
@@ -154,6 +161,10 @@ const EditorPage = () => {
       return;
     }
 
+    if (editorHtml === lastSavedContent) {
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -162,11 +173,38 @@ const EditorPage = () => {
       });
 
       setChapters((prev) => prev.map((chapter) => (chapter.id === updated.id ? updated : chapter)));
+      setLastSavedContent(editorHtml);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save chapter");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  useEffect(() => {
+    if (!selectedChapter || editorHtml === lastSavedContent) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void handleSaveChapter();
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [editorHtml, lastSavedContent, selectedChapter]);
+
+  const handleSelectChapter = async (chapterId: string) => {
+    if (chapterId === activeChapter) {
+      return;
+    }
+
+    if (selectedChapter && editorHtml !== lastSavedContent) {
+      await handleSaveChapter();
+    }
+
+    setActiveChapter(chapterId);
   };
 
   const handleCreateChapter = async () => {
@@ -186,8 +224,44 @@ const EditorPage = () => {
       setChapters(nextChapters);
       setActiveChapter(chapter.id);
       setEditorHtml(chapter.content);
+      setLastSavedContent(chapter.content);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create chapter");
+    }
+  };
+
+  const handleDeleteChapter = async (chapterId: string) => {
+    if (deletingChapterId) {
+      return;
+    }
+
+    const current = chapterEntries.find((chapter) => chapter.id === chapterId);
+    if (!current) {
+      return;
+    }
+
+    const index = chapterEntries.findIndex((chapter) => chapter.id === chapterId);
+    const nextChapter =
+      chapterEntries[index + 1] ??
+      chapterEntries[index - 1] ??
+      null;
+
+    setDeletingChapterId(chapterId);
+    setError(null);
+
+    try {
+      await deleteChapter(chapterId);
+      setChapters((prev) => prev.filter((chapter) => chapter.id !== chapterId));
+
+      if (activeChapter === chapterId) {
+        setActiveChapter(nextChapter?.id ?? "");
+        setEditorHtml(nextChapter?.content ?? "");
+        setLastSavedContent(nextChapter?.content ?? "");
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete chapter");
+    } finally {
+      setDeletingChapterId(null);
     }
   };
 
@@ -208,7 +282,7 @@ const EditorPage = () => {
         <div className="flex items-center gap-1">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
             <span className={`w-2 h-2 rounded-full ${isSaving ? "bg-warning animate-pulse" : "bg-success"}`} />
-            {isSaving ? "Saving..." : "Saved"}
+            {isSaving ? "Saving..." : editorHtml === lastSavedContent ? "Saved" : "Unsaved changes"}
           </span>
         </div>
         <div className="flex items-center gap-3 flex-1 justify-end">
@@ -269,23 +343,42 @@ const EditorPage = () => {
             {chapterEntries.map((chapter, index) => {
               const wordCount = plainTextWordCount(chapter.content);
               return (
-                <button
+                <div
                   key={chapter.id}
-                  onClick={() => setActiveChapter(chapter.id)}
                   className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 group flex items-center gap-2 ${
                     activeChapter === chapter.id
                       ? "bg-primary text-primary-foreground"
                       : "hover:bg-muted text-foreground"
                   }`}
                 >
-                  <GripVertical className={`w-3 h-3 opacity-0 group-hover:opacity-50 shrink-0 ${activeChapter === chapter.id ? "text-primary-foreground" : "text-muted-foreground"}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">Ch. {index + 1} — {chapter.title}</p>
-                    <p className={`text-xs ${activeChapter === chapter.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                      {wordCount.toLocaleString()} words
-                    </p>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => void handleSelectChapter(chapter.id)}
+                    className="flex items-center gap-2 flex-1 min-w-0"
+                  >
+                    <GripVertical className={`w-3 h-3 opacity-0 group-hover:opacity-50 shrink-0 ${activeChapter === chapter.id ? "text-primary-foreground" : "text-muted-foreground"}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">Ch. {index + 1} — {chapter.title}</p>
+                      <p className={`text-xs ${activeChapter === chapter.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                        {wordCount.toLocaleString()} words
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDeleteChapter(chapter.id);
+                    }}
+                    disabled={deletingChapterId === chapter.id}
+                    className={`p-1 rounded-md transition-colors ${
+                      activeChapter === chapter.id
+                        ? "hover:bg-primary-foreground/20"
+                        : "hover:bg-muted"
+                    } disabled:opacity-60`}
+                    title="Delete chapter"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -323,13 +416,19 @@ const EditorPage = () => {
                 ))}
               </div>
 
-              <textarea
-                value={editorHtml}
-                onChange={(event) => setEditorHtml(event.target.value)}
-                onBlur={() => void handleSaveChapter()}
-                className="w-full px-16 py-12 min-h-[60vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
-                placeholder="Start writing..."
-              />
+              {selectedChapter ? (
+                <textarea
+                  value={editorHtml}
+                  onChange={(event) => setEditorHtml(event.target.value)}
+                  onBlur={() => void handleSaveChapter()}
+                  className="w-full px-16 py-12 min-h-[60vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
+                  placeholder="Start writing..."
+                />
+              ) : (
+                <div className="px-16 py-12 min-h-[60vh] flex items-center justify-center text-muted-foreground">
+                  No chapters yet. Create one to start writing.
+                </div>
+              )}
             </div>
             {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
           </div>

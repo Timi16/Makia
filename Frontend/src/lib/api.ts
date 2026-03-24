@@ -274,6 +274,12 @@ export function updateChapter(id: string, input: { content: string }) {
   });
 }
 
+export function deleteChapter(id: string) {
+  return apiFetch<void>(`/api/chapters/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export function getApiBaseUrl() {
   return API_BASE_URL;
 }
