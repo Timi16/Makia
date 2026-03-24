@@ -45,14 +45,19 @@ const filteredProps = (props: MotionProps): HTMLAttributes<HTMLElement> => {
   return rest;
 };
 
+const motionCache: Record<string, ComponentType<MotionProps>> = {};
+
 const motionFactory = new Proxy(
   {},
   {
     get: (_target, key) => {
       const tag = String(key);
-      const MotionComponent: ComponentType<MotionProps> = (props) =>
-        createElement(tag, filteredProps(props));
-      return MotionComponent;
+      if (!motionCache[tag]) {
+        const MotionComponent: ComponentType<MotionProps> = (props) =>
+          createElement(tag, filteredProps(props));
+        motionCache[tag] = MotionComponent;
+      }
+      return motionCache[tag];
     },
   }
 );
