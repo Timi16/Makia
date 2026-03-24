@@ -66,6 +66,17 @@ export function clearAuth() {
   localStorage.removeItem(USER_KEY);
 }
 
+function redirectToLogin() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const isAuthPage = window.location.pathname === "/login" || window.location.pathname === "/register";
+  if (!isAuthPage) {
+    window.location.href = "/login";
+  }
+}
+
 export function getAccessToken(): string | null {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
 }
@@ -75,6 +86,10 @@ export function getCurrentUser(): AuthUser | null {
 }
 
 async function parseError(response: Response): Promise<never> {
+  if (response.status === 401) {
+    throw new Error("Unauthorized");
+  }
+
   let message = `Request failed with status ${response.status}`;
 
   try {
@@ -99,7 +114,7 @@ async function refreshSession() {
 
       if (!response.ok) {
         clearAuth();
-        await parseError(response);
+        throw new Error("Unauthorized");
       }
 
       const payload = (await response.json()) as AuthResponse;
@@ -142,8 +157,19 @@ async function apiFetch<T>(
   });
 
   if (response.status === 401 && auth && retry) {
-    await refreshSession();
+    try {
+      await refreshSession();
+    } catch {
+      clearAuth();
+      redirectToLogin();
+      throw new Error("Unauthorized");
+    }
     return apiFetch<T>(path, init, { auth, retry: false });
+  }
+
+  if (response.status === 401) {
+    clearAuth();
+    redirectToLogin();
   }
 
   if (!response.ok) {
