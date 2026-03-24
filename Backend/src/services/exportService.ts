@@ -320,10 +320,13 @@ export class ExportService {
     let workspaceDir = "";
 
     try {
-      await this.updateJobStatus(userId, jobId, {
+      const statusUpdated = await this.updateJobStatus(userId, jobId, {
         errorMessage: null,
         status: ExportStatus.PROCESSING,
       });
+      if (!statusUpdated) {
+        return;
+      }
 
       const book = await withUserRls(userId, async (tx) =>
         tx.book.findUnique({
@@ -383,11 +386,16 @@ export class ExportService {
       errorMessage?: string | null;
     }
   ) {
-    await withUserRls(userId, async (tx) => {
-      await tx.exportJob.update({
-        where: { id: jobId },
+    return withUserRls(userId, async (tx) => {
+      const result = await tx.exportJob.updateMany({
+        where: {
+          id: jobId,
+          userId,
+        },
         data,
       });
+
+      return result.count > 0;
     });
   }
 
@@ -476,8 +484,24 @@ export class ExportService {
     const epubPath = await this.generateEpub(book, workspaceDir);
     const mobiPath = path.join(workspaceDir, "book.mobi");
     const calibreBinary = process.env.CALIBRE_EBOOK_CONVERT_BIN ?? "ebook-convert";
+    try {
+      await runCommand(calibreBinary, [epubPath, mobiPath]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const looksLikeMissingBinary =
+        message.includes("ENOENT") ||
+        /not found/i.test(message) ||
+        /ebook-convert/i.test(message);
 
-    await runCommand(calibreBinary, [epubPath, mobiPath]);
+      if (looksLikeMissingBinary) {
+        throw new AppError(
+          500,
+          "MOBI export requires Calibre CLI. Install Calibre and ensure `ebook-convert` is available, or set `CALIBRE_EBOOK_CONVERT_BIN`."
+        );
+      }
+
+      throw new AppError(500, `MOBI conversion failed: ${message || "Unknown Calibre error"}`);
+    }
 
     return mobiPath;
   }
@@ -488,15 +512,32 @@ export class ExportService {
     format: ExportFormat
   ) {
     const { bucket } = getAwsConfig();
+    try {
+      await this.getS3Client().send(
+        new PutObjectCommand({
+          Body: fileBuffer,
+          Bucket: bucket,
+          ContentType: this.getContentType(format),
+          Key: s3Key,
+        })
+      );
+    } catch (error) {
+      const maybeS3 = error as {
+        Code?: string;
+        Endpoint?: string;
+        message?: string;
+      };
 
-    await this.getS3Client().send(
-      new PutObjectCommand({
-        Body: fileBuffer,
-        Bucket: bucket,
-        ContentType: this.getContentType(format),
-        Key: s3Key,
-      })
-    );
+      if (maybeS3?.Code === "PermanentRedirect") {
+        const endpointHint = maybeS3.Endpoint ? ` Use endpoint/region: ${maybeS3.Endpoint}.` : "";
+        throw new AppError(
+          500,
+          `S3 bucket region mismatch.${endpointHint} Set AWS_REGION to the bucket region and restart API + worker.`
+        );
+      }
+
+      throw error;
+    }
 
     return getCdnUrl(s3Key);
   }

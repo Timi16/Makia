@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, GripVertical, X, Bold, Italic, Underline, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Image, Table,
-  Undo, Redo, Clock, SlidersHorizontal, Download, Trash2
+  Undo, Redo, Clock, SlidersHorizontal, Download, Trash2, Menu
 } from "lucide-react";
 
 import ExportModal from "@/components/ExportModal";
@@ -63,6 +63,7 @@ const EditorPage = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showChapters, setShowChapters] = useState(false);
   const [activeTools, setActiveTools] = useState<string[]>(["Bold"]);
 
   const [book, setBook] = useState<ApiBook | null>(null);
@@ -375,6 +376,7 @@ const EditorPage = () => {
     }
 
     setActiveChapter(chapterId);
+    setShowChapters(false);
   };
 
   const handleCreateChapter = async () => {
@@ -397,6 +399,7 @@ const EditorPage = () => {
       setLastSavedTitle(chapter.title);
       setEditorHtml(chapter.content);
       setLastSavedContent(chapter.content);
+      setShowChapters(false);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create chapter");
     }
@@ -470,18 +473,25 @@ const EditorPage = () => {
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
-      <div className="h-14 bg-card border-b border-border flex items-center px-4 shrink-0">
-        <div className="flex items-center gap-3 flex-1">
-          <span className="font-medium text-foreground text-sm">{book.title}</span>
+      <div className="bg-card border-b border-border flex items-center px-3 md:px-4 py-2 md:h-14 shrink-0 gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <button
+            onClick={() => setShowChapters((prev) => !prev)}
+            className="md:hidden p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+            title="Toggle chapters"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+          <span className="font-medium text-foreground text-sm truncate">{book.title}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2 md:px-3 py-1.5 rounded-full">
             <span className={`w-2 h-2 rounded-full ${isSaving ? "bg-warning animate-pulse" : "bg-success"}`} />
-            {isSaving ? "Saving..." : editorHtml === lastSavedContent ? "Saved" : "Unsaved changes"}
+            <span className="hidden md:inline">{isSaving ? "Saving..." : editorHtml === lastSavedContent ? "Saved" : "Unsaved changes"}</span>
           </span>
         </div>
-        <div className="flex items-center gap-3 flex-1 justify-end">
-          <div className="flex -space-x-2">
+        <div className="flex items-center gap-1 md:gap-3 flex-1 justify-end min-w-0">
+          <div className="hidden lg:flex -space-x-2">
             {collaborators.map((c, i) => (
               <div key={i} className="relative" title={`${c.name} is editing`}>
                 <img src={c.avatar} alt={c.name} className="w-8 h-8 rounded-full object-cover border-2 border-card" />
@@ -489,34 +499,47 @@ const EditorPage = () => {
               </div>
             ))}
           </div>
-          <div className="w-px h-6 bg-border" />
+          <div className="hidden lg:block w-px h-6 bg-border" />
           <button
-            onClick={() => { setShowHistory(!showHistory); setShowDetails(false); }}
+            onClick={() => { setShowHistory(!showHistory); setShowDetails(false); setShowChapters(false); }}
             className={`p-2 rounded-lg transition-colors ${showHistory ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"}`}
           >
             <Clock className="w-4 h-4" />
           </button>
           <button
-            onClick={() => { setShowDetails(!showDetails); setShowHistory(false); }}
+            onClick={() => { setShowDetails(!showDetails); setShowHistory(false); setShowChapters(false); }}
             className={`p-2 rounded-lg transition-colors ${showDetails ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"}`}
           >
             <SlidersHorizontal className="w-4 h-4" />
           </button>
           <button
             onClick={() => setShowExport(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:scale-[1.02] btn-press"
+            className="flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:scale-[1.02] btn-press"
           >
-            <Download className="w-4 h-4" /> Export
+            <Download className="w-4 h-4" /> <span className="hidden sm:inline">Export</span>
           </button>
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-64 bg-card border-r border-border flex flex-col shrink-0">
+        {showChapters ? (
+          <button
+            aria-label="Close chapters panel"
+            className="fixed inset-0 z-30 bg-black/35 md:hidden"
+            onClick={() => setShowChapters(false)}
+          />
+        ) : null}
+
+        <div className={`fixed inset-y-0 left-0 z-40 w-[82vw] max-w-72 bg-card border-r border-border flex flex-col shrink-0 transition-transform duration-200 md:static md:w-64 md:translate-x-0 ${showChapters ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
           <div className="p-4 border-b border-border">
-            <Link to="/dashboard" className="p-2 rounded-lg hover:bg-muted transition-colors inline-flex text-muted-foreground mb-3">
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
+            <div className="flex items-center justify-between mb-3">
+              <Link to="/dashboard" className="p-2 rounded-lg hover:bg-muted transition-colors inline-flex text-muted-foreground">
+                <ArrowLeft className="w-4 h-4" />
+              </Link>
+              <button onClick={() => setShowChapters(false)} className="md:hidden p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
             <div className="flex items-center gap-3">
               <img
                 src={book.coverUrl || "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=260&h=180&fit=crop"}
@@ -587,8 +610,8 @@ const EditorPage = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto my-8">
-            <div className="bg-card rounded-2xl shadow-sm border border-border">
+          <div className="max-w-3xl mx-auto my-3 md:my-8 px-2 md:px-0">
+            <div className="bg-card rounded-xl md:rounded-2xl shadow-sm border border-border">
               <div className="sticky top-0 z-10 bg-card border-b border-border rounded-t-2xl px-4 py-2.5 flex items-center gap-1 flex-wrap">
                 {toolbarGroups.map((group, gi) => (
                   <div key={gi} className="flex items-center gap-0.5">
@@ -613,12 +636,12 @@ const EditorPage = () => {
 
               {selectedChapter ? (
                 <>
-                  <div className="px-16 pt-10">
+                  <div className="px-4 md:px-16 pt-6 md:pt-10">
                     <input
                       value={chapterTitle}
                       onChange={(event) => setChapterTitle(event.target.value)}
                       onBlur={() => void handleSaveChapter()}
-                      className="w-full text-3xl font-bold bg-transparent text-foreground focus:outline-none"
+                      className="w-full text-2xl md:text-3xl font-bold bg-transparent text-foreground focus:outline-none"
                       placeholder="Chapter title"
                     />
                   </div>
@@ -630,12 +653,12 @@ const EditorPage = () => {
                       pushHistory(event.target.value);
                     }}
                     onBlur={() => void handleSaveChapter()}
-                    className="w-full px-16 py-8 min-h-[54vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
+                    className="w-full px-4 md:px-16 py-6 md:py-8 min-h-[54vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
                     placeholder="Start writing..."
                   />
                 </>
               ) : (
-                <div className="px-16 py-12 min-h-[60vh] flex items-center justify-center text-muted-foreground">
+                <div className="px-4 md:px-16 py-12 min-h-[60vh] flex items-center justify-center text-muted-foreground">
                   No chapters yet. Create one to start writing.
                 </div>
               )}
@@ -644,14 +667,25 @@ const EditorPage = () => {
           </div>
         </div>
 
+        {(showDetails || showHistory) ? (
+          <button
+            aria-label="Close side panel"
+            className="fixed inset-0 z-30 bg-black/35 md:hidden"
+            onClick={() => {
+              setShowDetails(false);
+              setShowHistory(false);
+            }}
+          />
+        ) : null}
+
         <AnimatePresence>
           {showDetails && (
             <motion.div
-              initial={{ x: 320 }}
+              initial={{ x: 360 }}
               animate={{ x: 0 }}
-              exit={{ x: 320 }}
+              exit={{ x: 360 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-80 bg-card border-l border-border shadow-lg overflow-y-auto shrink-0"
+              className="fixed right-0 top-0 bottom-0 z-40 w-full sm:w-80 bg-card border-l border-border shadow-lg overflow-y-auto shrink-0 md:relative"
             >
               <div className="p-4 border-b border-border flex items-center justify-between">
                 <h3 className="font-semibold text-foreground">Book Details</h3>
@@ -697,11 +731,11 @@ const EditorPage = () => {
         <AnimatePresence>
           {showHistory && (
             <motion.div
-              initial={{ x: 320 }}
+              initial={{ x: 360 }}
               animate={{ x: 0 }}
-              exit={{ x: 320 }}
+              exit={{ x: 360 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-80 bg-card border-l border-border shadow-lg overflow-y-auto shrink-0"
+              className="fixed right-0 top-0 bottom-0 z-40 w-full sm:w-80 bg-card border-l border-border shadow-lg overflow-y-auto shrink-0 md:relative"
             >
               <div className="p-4 border-b border-border flex items-center justify-between">
                 <h3 className="font-semibold text-foreground">Version History</h3>

@@ -423,12 +423,26 @@ async function createPdf(input: {
 
 async function pollExportUntilReady(jobId: string) {
   const maxAttempts = 120;
+  let queuedCount = 0;
+  let processingCount = 0;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const status = await getBookExportStatus(jobId);
 
     if (status.status === "DONE" || status.status === "FAILED") {
       return status;
+    }
+
+    if (status.status === "QUEUED") {
+      queuedCount += 1;
+      if (queuedCount >= 25) {
+        throw new Error("Export is still queued. Ensure backend export worker is running (`cd Backend && npm run worker:export`).");
+      }
+    } else if (status.status === "PROCESSING") {
+      processingCount += 1;
+      if (processingCount >= 80) {
+        throw new Error("Export is taking too long in processing. Check worker logs for conversion errors.");
+      }
     }
 
     await wait(2000);
