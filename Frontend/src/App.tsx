@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ensureSession, getAccessToken } from "@/lib/api";
+import { ensureSession, getAccessToken, getCurrentUser, type AuthUser } from "@/lib/api";
 
 import LandingPage from "./pages/Landing";
 import LoginPage from "./pages/Login";
@@ -12,48 +12,78 @@ import RegisterPage from "./pages/Register";
 import DashboardPage from "./pages/Dashboard";
 import EditorPage from "./pages/Editor";
 import AdminPage from "./pages/Admin";
+import AdminLoginPage from "./pages/AdminLogin";
 import NotFound from "./pages/NotFound";
 
-const RequireAuth = ({ children, authed }: { children: JSX.Element; authed: boolean }) => {
-  if (!authed) {
+const RequireUserAuth = ({ children, user }: { children: JSX.Element; user: AuthUser | null }) => {
+  if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (user.role === "ADMIN") {
+    return <Navigate to="/admin" replace />;
   }
 
   return children;
 };
 
-const RedirectIfAuthed = ({ children, authed }: { children: JSX.Element; authed: boolean }) => {
-  if (authed) {
+const RequireAdminAuth = ({ children, user }: { children: JSX.Element; user: AuthUser | null }) => {
+  if (!user) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  if (user.role !== "ADMIN") {
     return <Navigate to="/dashboard" replace />;
   }
 
   return children;
 };
 
+const RedirectIfUserAuthed = ({ children, user }: { children: JSX.Element; user: AuthUser | null }) => {
+  if (user) {
+    return <Navigate to={user.role === "ADMIN" ? "/admin" : "/dashboard"} replace />;
+  }
+
+  return children;
+};
+
+const RedirectIfAdminAuthed = ({ children, user }: { children: JSX.Element; user: AuthUser | null }) => {
+  if (!user) {
+    return children;
+  }
+
+  if (user.role === "ADMIN") {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
+};
+
 const App = () => {
   const [authReady, setAuthReady] = useState(false);
-  const [authed, setAuthed] = useState(Boolean(getAccessToken()));
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(getCurrentUser());
 
   useEffect(() => {
     let active = true;
 
     const bootstrapAuth = async () => {
       const hasToken = Boolean(getAccessToken());
+      const cachedUser = getCurrentUser();
 
       try {
-        if (hasToken && active) {
-          setAuthed(true);
+        if (hasToken && cachedUser && active) {
+          setCurrentUser(cachedUser);
         }
 
         await ensureSession();
         if (active) {
-          setAuthed(true);
+          setCurrentUser(getCurrentUser());
         }
       } catch (error) {
         if (active) {
           const unauthorized =
             error instanceof Error && error.message.toLowerCase().includes("unauthorized");
-          setAuthed(unauthorized ? false : hasToken);
+          setCurrentUser(unauthorized ? null : cachedUser);
         }
       } finally {
         if (active) {
@@ -71,7 +101,7 @@ const App = () => {
 
   useEffect(() => {
     const syncAuth = () => {
-      setAuthed(Boolean(getAccessToken()));
+      setCurrentUser(getCurrentUser());
     };
 
     window.addEventListener("auth-changed", syncAuth);
@@ -95,11 +125,12 @@ const App = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<RedirectIfAuthed authed={authed}><LoginPage /></RedirectIfAuthed>} />
-            <Route path="/register" element={<RedirectIfAuthed authed={authed}><RegisterPage /></RedirectIfAuthed>} />
-            <Route path="/dashboard" element={<RequireAuth authed={authed}><DashboardPage /></RequireAuth>} />
-            <Route path="/editor/:bookId" element={<RequireAuth authed={authed}><EditorPage /></RequireAuth>} />
-            <Route path="/admin" element={<RequireAuth authed={authed}><AdminPage /></RequireAuth>} />
+            <Route path="/login" element={<RedirectIfUserAuthed user={currentUser}><LoginPage /></RedirectIfUserAuthed>} />
+            <Route path="/register" element={<RedirectIfUserAuthed user={currentUser}><RegisterPage /></RedirectIfUserAuthed>} />
+            <Route path="/dashboard" element={<RequireUserAuth user={currentUser}><DashboardPage /></RequireUserAuth>} />
+            <Route path="/editor/:bookId" element={<RequireUserAuth user={currentUser}><EditorPage /></RequireUserAuth>} />
+            <Route path="/admin/login" element={<RedirectIfAdminAuthed user={currentUser}><AdminLoginPage /></RedirectIfAdminAuthed>} />
+            <Route path="/admin" element={<RequireAdminAuth user={currentUser}><AdminPage /></RequireAdminAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

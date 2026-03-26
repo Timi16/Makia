@@ -174,6 +174,12 @@ const LoginPage = () => {
             Create one free
           </Link>
         </p>
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Admin access?{" "}
+          <Link to="/admin/login" className="text-primary hover:underline">
+            Sign in here
+          </Link>
+        </p>
       </motion.div>
     </div>
   );
