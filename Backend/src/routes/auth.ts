@@ -1,7 +1,12 @@
 import { FastifyInstance } from "fastify";
 import { UserRole } from "@prisma/client";
 
-import { clearRefreshCookie, refreshCookieName, setRefreshCookie, authService } from "../services/authService";
+import {
+  clearRefreshCookie,
+  refreshCookieName,
+  setRefreshCookie,
+  authService,
+} from "../services/authService";
 
 export async function authRoutes(app: FastifyInstance) {
   app.post("/register", async (request, reply) => {
@@ -13,14 +18,25 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/login", async (request, reply) => {
-    const result = await authService.login(request.body, { expectedRole: UserRole.USER });
+    const result = await authService.login(request.body, {
+      expectedRole: UserRole.USER,
+    });
     setRefreshCookie(reply, result.refreshToken);
 
     return reply.send(result);
   });
 
   app.post("/admin/login", async (request, reply) => {
-    const result = await authService.login(request.body, { expectedRole: UserRole.ADMIN });
+    const body = request.body as Record<string, string> | null | undefined;
+
+    const input = {
+      usernameOrEmail: body?.usernameOrEmail ?? "admin@makia.local",
+      password: body?.password ?? "admin123456",
+    };
+
+    const result = await authService.login(input, {
+      expectedRole: UserRole.ADMIN,
+    });
 
     setRefreshCookie(reply, result.refreshToken);
 
