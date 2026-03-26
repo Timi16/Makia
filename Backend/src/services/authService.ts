@@ -3,6 +3,7 @@ import { FastifyReply } from "fastify";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
+import { UserRole } from "@prisma/client";
 import { z } from "zod";
 
 import { prisma } from "../lib/prisma";
@@ -31,6 +32,7 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   name: string;
+  role: UserRole;
 }
 
 interface TokenPayload extends AuthenticatedUser {
@@ -70,7 +72,19 @@ function toPublicUser(user: AuthenticatedUser): AuthenticatedUser {
     id: user.id,
     email: user.email,
     name: user.name,
+    role: user.role,
   };
+}
+
+function assertUserRole(user: AuthenticatedUser, expectedRole: UserRole) {
+  if (user.role !== expectedRole) {
+    throw new AppError(
+      403,
+      expectedRole === UserRole.ADMIN
+        ? "Admin access required"
+        : "Please sign in with a user account"
+    );
+  }
 }
 
 function getRefreshCookieOptions(): CookieSerializeOptions {
@@ -129,13 +143,14 @@ export class AuthService {
         id: true,
         email: true,
         name: true,
+        role: true,
       },
     });
 
     return this.issueTokens(user);
   }
 
-  public async login(input: unknown): Promise<AuthResponse> {
+  public async login(input: unknown, options: { expectedRole?: UserRole } = {}): Promise<AuthResponse> {
     const payload = loginSchema.parse(input);
     const user = await prisma.user.findUnique({
       where: { email: payload.email.toLowerCase() },
@@ -151,11 +166,18 @@ export class AuthService {
       throw new AppError(401, "Invalid email or password");
     }
 
-    return this.issueTokens({
+    const authUser: AuthenticatedUser = {
       id: user.id,
       email: user.email,
       name: user.name,
-    });
+      role: user.role,
+    };
+
+    if (options.expectedRole) {
+      assertUserRole(authUser, options.expectedRole);
+    }
+
+    return this.issueTokens(authUser);
   }
 
   public async refresh(refreshToken: string | undefined): Promise<RefreshResponse> {
@@ -171,6 +193,7 @@ export class AuthService {
         id: true,
         email: true,
         name: true,
+        role: true,
       },
     });
 
