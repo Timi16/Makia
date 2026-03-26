@@ -130,7 +130,7 @@ const App = () => {
             <Route path="/dashboard" element={<RequireUserAuth user={currentUser}><DashboardPage /></RequireUserAuth>} />
             <Route path="/editor/:bookId" element={<RequireUserAuth user={currentUser}><EditorPage /></RequireUserAuth>} />
             <Route path="/admin/login" element={<RedirectIfAdminAuthed user={currentUser}><AdminLoginPage /></RedirectIfAdminAuthed>} />
-            <Route path="/admin" element={<RequireAdminAuth user={currentUser}><AdminPage /></RequireAdminAuth>} />
+            <Route path="/admin/*" element={<RequireAdminAuth user={currentUser}><AdminPage /></RequireAdminAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
