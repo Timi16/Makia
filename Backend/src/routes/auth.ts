@@ -34,9 +34,7 @@ export async function authRoutes(app: FastifyInstance) {
       password: body?.password ?? "admin123456",
     };
 
-    const result = await authService.login(input, {
-      expectedRole: UserRole.ADMIN,
-    });
+    const result = await authService.adminLogin(input); // ← was authService.login()
 
     setRefreshCookie(reply, result.refreshToken);
 

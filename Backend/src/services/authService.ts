@@ -20,7 +20,10 @@ const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(8).max(128),
 });
-
+const adminLoginSchema = z.object({
+  usernameOrEmail: z.string().min(1).max(128),
+  password: z.string().min(8).max(128),
+});
 const accessTokenExpiresIn = "15m";
 const refreshTokenExpiresIn = "7d";
 const refreshTokenMaxAgeSeconds = 7 * 24 * 60 * 60;
@@ -89,7 +92,7 @@ function assertUserRole(user: AuthenticatedUser, expectedRole: UserRole) {
       403,
       expectedRole === UserRole.ADMIN
         ? "Admin access required"
-        : "Please sign in with a user account"
+        : "Please sign in with a user account",
     );
   }
 }
@@ -130,7 +133,8 @@ export function clearRefreshCookie(reply: FastifyReply) {
 
 export class AuthService {
   public async ensureDefaultAdmin(): Promise<DefaultAdminBootstrapResult | null> {
-    const configuredEmail = process.env.DEFAULT_ADMIN_EMAIL?.trim().toLowerCase();
+    const configuredEmail =
+      process.env.DEFAULT_ADMIN_EMAIL?.trim().toLowerCase();
     const configuredPassword = process.env.DEFAULT_ADMIN_PASSWORD?.trim();
     const configuredName = process.env.DEFAULT_ADMIN_NAME?.trim();
 
@@ -138,8 +142,10 @@ export class AuthService {
     const fallbackEmail = "admin@makia.local";
     const fallbackPassword = "admin123456";
 
-    const email = configuredEmail || (!isProduction ? fallbackEmail : undefined);
-    const password = configuredPassword || (!isProduction ? fallbackPassword : undefined);
+    const email =
+      configuredEmail || (!isProduction ? fallbackEmail : undefined);
+    const password =
+      configuredPassword || (!isProduction ? fallbackPassword : undefined);
     const name = configuredName || "Default Admin";
     const usingFallback = !configuredEmail || !configuredPassword;
 
@@ -148,7 +154,10 @@ export class AuthService {
     }
 
     if (password.length < 8 || password.length > 128) {
-      throw new AppError(500, "DEFAULT_ADMIN_PASSWORD must be between 8 and 128 characters");
+      throw new AppError(
+        500,
+        "DEFAULT_ADMIN_PASSWORD must be between 8 and 128 characters",
+      );
     }
 
     const existing = await prisma.user.findUnique({
@@ -223,7 +232,10 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  public async login(input: unknown, options: { expectedRole?: UserRole } = {}): Promise<AuthResponse> {
+  public async login(
+    input: unknown,
+    options: { expectedRole?: UserRole } = {},
+  ): Promise<AuthResponse> {
     const payload = loginSchema.parse(input);
     const user = await prisma.user.findUnique({
       where: { email: payload.email.toLowerCase() },
@@ -233,7 +245,10 @@ export class AuthService {
       throw new AppError(401, "Invalid email or password");
     }
 
-    const passwordMatches = await bcrypt.compare(payload.password, user.passwordHash);
+    const passwordMatches = await bcrypt.compare(
+      payload.password,
+      user.passwordHash,
+    );
 
     if (!passwordMatches) {
       throw new AppError(401, "Invalid email or password");
@@ -253,7 +268,9 @@ export class AuthService {
     return this.issueTokens(authUser);
   }
 
-  public async refresh(refreshToken: string | undefined): Promise<RefreshResponse> {
+  public async refresh(
+    refreshToken: string | undefined,
+  ): Promise<RefreshResponse> {
     if (!refreshToken) {
       throw new AppError(401, "Refresh token is required");
     }
@@ -349,7 +366,7 @@ export class AuthService {
       {
         expiresIn: accessTokenExpiresIn,
         subject: user.id,
-      }
+      },
     );
   }
 
@@ -366,11 +383,15 @@ export class AuthService {
       {
         expiresIn: refreshTokenExpiresIn,
         subject: user.id,
-      }
+      },
     );
   }
 
-  private async persistRefreshSession(userId: string, sessionId: string, refreshToken: string) {
+  private async persistRefreshSession(
+    userId: string,
+    sessionId: string,
+    refreshToken: string,
+  ) {
     await redis.set(
       getRefreshSessionKey(sessionId),
       JSON.stringify({
@@ -378,13 +399,13 @@ export class AuthService {
         userId,
       }),
       "EX",
-      refreshTokenMaxAgeSeconds
+      refreshTokenMaxAgeSeconds,
     );
   }
 
   private async assertRefreshSession(
     payload: RefreshTokenPayload,
-    refreshToken: string
+    refreshToken: string,
   ) {
     const session = await redis.get(getRefreshSessionKey(payload.sessionId));
 
@@ -404,6 +425,41 @@ export class AuthService {
 
   private async revokeRefreshSession(sessionId: string) {
     await redis.del(getRefreshSessionKey(sessionId));
+  }
+  public async adminLogin(input: unknown): Promise<AuthResponse> {
+    const payload = adminLoginSchema.parse(input);
+
+    const isEmail = payload.usernameOrEmail.includes("@");
+
+    const user = await prisma.user.findFirst({
+      where: isEmail
+        ? { email: payload.usernameOrEmail.toLowerCase() }
+        : { name: { equals: payload.usernameOrEmail, mode: "insensitive" } },
+    });
+
+    if (!user) {
+      throw new AppError(401, "Invalid username/email or password");
+    }
+
+    const passwordMatches = await bcrypt.compare(
+      payload.password,
+      user.passwordHash,
+    );
+
+    if (!passwordMatches) {
+      throw new AppError(401, "Invalid username/email or password");
+    }
+
+    const authUser: AuthenticatedUser = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    };
+
+    assertUserRole(authUser, UserRole.ADMIN);
+
+    return this.issueTokens(authUser);
   }
 }
 
