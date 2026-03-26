@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  role: "USER" | "ADMIN";
 }
 
 interface AuthResponse {
@@ -61,6 +62,52 @@ export interface ExportStatusResponse {
   errorMessage: string | null;
 }
 
+export interface AdminOverview {
+  totalUsers: number;
+  totalBooks: number;
+  totalExports: number;
+  newUsersLast30Days: number;
+  activeUsersLast30Days: number;
+}
+
+export interface AdminPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface AdminUsersResponse {
+  items: Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: "USER" | "ADMIN";
+    createdAt: string;
+    booksCount: number;
+    exportsCount: number;
+    status: "active" | "inactive";
+  }>;
+  pagination: AdminPagination;
+}
+
+export interface AdminBooksResponse {
+  items: Array<{
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+    owner: {
+      id: string;
+      name: string;
+      email: string;
+    };
+    chaptersCount: number;
+    exportsCount: number;
+  }>;
+  pagination: AdminPagination;
+}
+
 const ACCESS_TOKEN_KEY = "makia_access_token";
 const USER_KEY = "makia_user";
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:4000";
@@ -102,9 +149,14 @@ function redirectToLogin() {
     return;
   }
 
-  const isAuthPage = window.location.pathname === "/login" || window.location.pathname === "/register";
+  const pathname = window.location.pathname;
+  const isAdminPath = pathname.startsWith("/admin");
+  const targetPath = isAdminPath ? "/admin/login" : "/login";
+  const isAuthPage =
+    pathname === targetPath || pathname === "/register" || pathname === "/admin/login";
+
   if (!isAuthPage) {
-    window.location.href = "/login";
+    window.location.href = targetPath;
   }
 }
 
@@ -227,6 +279,19 @@ export async function login(email: string, password: string) {
   return payload.user;
 }
 
+export async function adminLogin(email: string, password: string) {
+  const payload = await apiFetch<AuthResponse>(
+    "/api/auth/admin/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    },
+    { auth: false }
+  );
+  persistAuth(payload);
+  return payload.user;
+}
+
 export async function register(name: string, email: string, password: string) {
   const payload = await apiFetch<AuthResponse>(
     "/api/auth/register",
@@ -335,6 +400,49 @@ export function createBookExport(bookId: string, format: ExportFormat) {
 
 export function getBookExportStatus(jobId: string) {
   return apiFetch<ExportStatusResponse>(`/api/export/${jobId}/status`);
+}
+
+function buildQuery(params: Record<string, string | number | undefined>) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined) {
+      return;
+    }
+
+    if (typeof value === "string" && value.trim().length === 0) {
+      return;
+    }
+
+    query.set(key, String(value));
+  });
+
+  const raw = query.toString();
+  return raw.length > 0 ? `?${raw}` : "";
+}
+
+export function getAdminOverview() {
+  return apiFetch<AdminOverview>("/api/admin/overview");
+}
+
+export function getAdminUsers(input: { page?: number; pageSize?: number; search?: string } = {}) {
+  const query = buildQuery({
+    page: input.page,
+    pageSize: input.pageSize,
+    search: input.search,
+  });
+
+  return apiFetch<AdminUsersResponse>(`/api/admin/users${query}`);
+}
+
+export function getAdminBooks(input: { page?: number; pageSize?: number; search?: string } = {}) {
+  const query = buildQuery({
+    page: input.page,
+    pageSize: input.pageSize,
+    search: input.search,
+  });
+
+  return apiFetch<AdminBooksResponse>(`/api/admin/books${query}`);
 }
 
 export async function uploadBookCover(bookId: string, file: File) {

@@ -9,6 +9,7 @@ import { redis } from "./lib/redis";
 import { registerErrorHandler } from "./middleware/errorHandler";
 import { registerRateLimiter } from "./middleware/rateLimiter";
 import { authRoutes } from "./routes/auth";
+import { adminRoutes } from "./routes/admin";
 import { bookRoutes } from "./routes/books";
 import { chapterRoutes } from "./routes/chapters";
 import { exportRoutes } from "./routes/export";
@@ -76,6 +77,7 @@ export async function buildServer() {
   });
 
   await app.register(authRoutes, { prefix: "/api/auth" });
+  await app.register(adminRoutes, { prefix: "/api/admin" });
   await app.register(bookRoutes, { prefix: "/api/books" });
   await app.register(chapterRoutes, { prefix: "/api" });
   await app.register(storageRoutes, { prefix: "/api/storage" });
