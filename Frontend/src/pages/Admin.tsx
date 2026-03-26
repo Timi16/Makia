@@ -7,7 +7,6 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
-  Loader2,
   LogOut,
   Search,
   Settings,
