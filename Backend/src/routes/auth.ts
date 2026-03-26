@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import { UserRole } from "@prisma/client";
 
 import { clearRefreshCookie, refreshCookieName, setRefreshCookie, authService } from "../services/authService";
 
@@ -12,7 +13,14 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/login", async (request, reply) => {
-    const result = await authService.login(request.body);
+    const result = await authService.login(request.body, { expectedRole: UserRole.USER });
+    setRefreshCookie(reply, result.refreshToken);
+
+    return reply.send(result);
+  });
+
+  app.post("/admin/login", async (request, reply) => {
+    const result = await authService.login(request.body, { expectedRole: UserRole.ADMIN });
 
     setRefreshCookie(reply, result.refreshToken);
 
