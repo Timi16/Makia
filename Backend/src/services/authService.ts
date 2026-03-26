@@ -56,6 +56,13 @@ interface RefreshTokenPayload extends AuthenticatedUser {
   sessionId: string;
 }
 
+interface DefaultAdminBootstrapResult {
+  email: string;
+  password: string;
+  created: boolean;
+  usingFallback: boolean;
+}
+
 function getJwtSecrets() {
   const accessSecret = process.env.JWT_ACCESS_SECRET;
   const refreshSecret = process.env.JWT_REFRESH_SECRET;
@@ -122,6 +129,72 @@ export function clearRefreshCookie(reply: FastifyReply) {
 }
 
 export class AuthService {
+  public async ensureDefaultAdmin(): Promise<DefaultAdminBootstrapResult | null> {
+    const configuredEmail = process.env.DEFAULT_ADMIN_EMAIL?.trim().toLowerCase();
+    const configuredPassword = process.env.DEFAULT_ADMIN_PASSWORD?.trim();
+    const configuredName = process.env.DEFAULT_ADMIN_NAME?.trim();
+
+    const isProduction = process.env.NODE_ENV === "production";
+    const fallbackEmail = "admin@makia.local";
+    const fallbackPassword = "admin123456";
+
+    const email = configuredEmail || (!isProduction ? fallbackEmail : undefined);
+    const password = configuredPassword || (!isProduction ? fallbackPassword : undefined);
+    const name = configuredName || "Default Admin";
+    const usingFallback = !configuredEmail || !configuredPassword;
+
+    if (!email || !password) {
+      return null;
+    }
+
+    if (password.length < 8 || password.length > 128) {
+      throw new AppError(500, "DEFAULT_ADMIN_PASSWORD must be between 8 and 128 characters");
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!existing) {
+      const passwordHash = await bcrypt.hash(password, bcryptRounds);
+      await prisma.user.create({
+        data: {
+          email,
+          name,
+          passwordHash,
+          role: UserRole.ADMIN,
+        },
+      });
+
+      return {
+        email,
+        password,
+        created: true,
+        usingFallback,
+      };
+    }
+
+    if (existing.role !== UserRole.ADMIN) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          role: UserRole.ADMIN,
+        },
+      });
+    }
+
+    return {
+      email,
+      password,
+      created: false,
+      usingFallback,
+    };
+  }
+
   public async register(input: unknown): Promise<AuthResponse> {
     const payload = registerSchema.parse(input);
     const existingUser = await prisma.user.findUnique({

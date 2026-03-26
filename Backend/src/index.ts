@@ -14,6 +14,7 @@ import { bookRoutes } from "./routes/books";
 import { chapterRoutes } from "./routes/chapters";
 import { exportRoutes } from "./routes/export";
 import { storageRoutes } from "./routes/storage";
+import { authService } from "./services/authService";
 import { registerRealtimeServer } from "./ws/realtimeServer";
 
 const DEFAULT_PORT = 4000;
@@ -99,6 +100,19 @@ async function start() {
   const host = "0.0.0.0";
 
   try {
+    const defaultAdmin = await authService.ensureDefaultAdmin();
+    if (defaultAdmin) {
+      app.log.info(
+        {
+          email: defaultAdmin.email,
+          password: defaultAdmin.password,
+          created: defaultAdmin.created,
+          usingFallback: defaultAdmin.usingFallback,
+        },
+        "Default admin is ready"
+      );
+    }
+
     await app.listen({ host, port });
   } catch (error) {
     app.log.error(error, "Failed to start server");
