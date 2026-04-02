@@ -11,6 +11,7 @@ import {
   getBooks,
   getChapters,
   getCurrentUser,
+  uploadBookCover,
   type ApiBook,
   type AuthUser,
 } from "@/lib/api";
@@ -219,9 +220,18 @@ const DashboardPage = () => {
     description?: string;
     genre?: string;
     coverUrl?: string;
+    coverFile?: File;
   }) => {
-    const created = await createBook(input);
-    const createdUI = mapBook(created, 0, 0);
+    const { coverFile, ...createInput } = input;
+    const created = await createBook(createInput);
+    let finalBook = created;
+
+    if (coverFile) {
+      const uploadedCoverUrl = await uploadBookCover(created.id, coverFile);
+      finalBook = { ...created, coverUrl: uploadedCoverUrl };
+    }
+
+    const createdUI = mapBook(finalBook, 0, 0);
     setBooks((prev) => [createdUI, ...prev]);
   };
 
