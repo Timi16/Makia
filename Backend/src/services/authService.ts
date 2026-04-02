@@ -164,6 +164,8 @@ export class AuthService {
       where: { email },
       select: {
         id: true,
+        name: true,
+        passwordHash: true,
         role: true,
       },
     });
@@ -187,12 +189,31 @@ export class AuthService {
       };
     }
 
+    const updateData: {
+      name?: string;
+      passwordHash?: string;
+      role?: UserRole;
+    } = {};
+
     if (existing.role !== UserRole.ADMIN) {
+      updateData.role = UserRole.ADMIN;
+    }
+
+    if (configuredName && configuredName !== existing.name) {
+      updateData.name = configuredName;
+    }
+
+    if (configuredPassword) {
+      const passwordMatches = await bcrypt.compare(password, existing.passwordHash);
+      if (!passwordMatches) {
+        updateData.passwordHash = await bcrypt.hash(password, bcryptRounds);
+      }
+    }
+
+    if (Object.keys(updateData).length > 0) {
       await prisma.user.update({
         where: { id: existing.id },
-        data: {
-          role: UserRole.ADMIN,
-        },
+        data: updateData,
       });
     }
 
