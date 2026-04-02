@@ -110,7 +110,7 @@ export interface AdminBooksResponse {
 
 const ACCESS_TOKEN_KEY = "makia_access_token";
 const USER_KEY = "makia_user";
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:4000";
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || " https://prefamiliar-unprecociously-pearlie.ngrok-free.dev";
 
 let refreshPromise: Promise<void> | null = null;
 
