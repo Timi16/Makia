@@ -136,6 +136,15 @@ npm run pm2:stop
 `CALIBRE_EBOOK_CONVERT_BIN`
 : Optional path to the Calibre `ebook-convert` executable.
 
+`DEFAULT_ADMIN_EMAIL`
+: Admin account email auto-provisioned at startup (required in production if you want a default admin created).
+
+`DEFAULT_ADMIN_PASSWORD`
+: Password for the auto-provisioned admin account (8-128 chars).
+
+`DEFAULT_ADMIN_NAME`
+: Optional display name for the auto-provisioned admin account.
+
 ## Migrations
 
 - Schema file: `src/prisma/schema.prisma`

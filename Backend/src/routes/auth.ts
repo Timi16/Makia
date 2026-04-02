@@ -30,11 +30,11 @@ export async function authRoutes(app: FastifyInstance) {
     const body = request.body as Record<string, string> | null | undefined;
 
     const input = {
-      usernameOrEmail: body?.usernameOrEmail ?? "admin@makia.local",
-      password: body?.password ?? "admin123456",
+      usernameOrEmail: body?.usernameOrEmail ?? body?.email,
+      password: body?.password,
     };
 
-    const result = await authService.adminLogin(input); // ← was authService.login()
+    const result = await authService.adminLogin(input);
 
     setRefreshCookie(reply, result.refreshToken);
 

@@ -297,7 +297,7 @@ export async function adminLogin(email: string, password: string) {
     "/api/auth/admin/login",
     {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ usernameOrEmail: email, password }),
     },
     { auth: false }
   );
