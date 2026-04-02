@@ -128,7 +128,7 @@ npm run pm2:stop
 : Application environment, typically `development` or `production`.
 
 `FRONTEND_ORIGIN`
-: Allowed frontend origin for CORS and cookie credentials.
+: Allowed frontend origins for CORS and cookie credentials (comma-separated). Supports exact origins (`https://makia-five.vercel.app`), host-only entries (`makia-five.vercel.app`), and wildcard subdomains (`https://*.vercel.app`).
 
 `COOKIE_DOMAIN`
 : Cookie domain for refresh tokens. Leave as `localhost` for local development.

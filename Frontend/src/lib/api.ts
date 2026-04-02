@@ -110,7 +110,16 @@ export interface AdminBooksResponse {
 
 const ACCESS_TOKEN_KEY = "makia_access_token";
 const USER_KEY = "makia_user";
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || " https://prefamiliar-unprecociously-pearlie.ngrok-free.dev";
+const API_BASE_URL =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
+  "https://prefamiliar-unprecociously-pearlie.ngrok-free.dev";
+const IS_NGROK_BASE_URL = /ngrok(?:-free)?\.dev|ngrok\.io/i.test(API_BASE_URL);
+
+function applyTunnelHeaders(headers: Headers) {
+  if (IS_NGROK_BASE_URL) {
+    headers.set("ngrok-skip-browser-warning", "true");
+  }
+}
 
 let refreshPromise: Promise<void> | null = null;
 
@@ -190,8 +199,11 @@ async function parseError(response: Response): Promise<never> {
 async function refreshSession() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
+      const headers = new Headers();
+      applyTunnelHeaders(headers);
       const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
         method: "POST",
+        headers,
         credentials: "include",
       });
 
@@ -232,6 +244,7 @@ async function apiFetch<T>(
       headers.set("Authorization", `Bearer ${token}`);
     }
   }
+  applyTunnelHeaders(headers);
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
