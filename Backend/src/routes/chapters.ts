@@ -1,9 +1,11 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import { requireBookAccess } from "../lib/bookAccess";
 import { withUserRls } from "../lib/rls";
 import { authGuard } from "../middleware/authGuard";
 import { AppError } from "../middleware/errorHandler";
+import { notifyBookChanged } from "../ws/realtimeServer";
 
 const bookParamsSchema = z.object({
   id: z.uuid(),
@@ -59,14 +61,7 @@ export async function chapterRoutes(app: FastifyInstance) {
     const body = createChapterSchema.parse(request.body);
 
     const chapter = await withUserRls(request.user.id, async (tx) => {
-      const book = await tx.book.findUnique({
-        where: { id },
-        select: { id: true },
-      });
-
-      if (!book) {
-        throw new AppError(404, "Book not found");
-      }
+      await requireBookAccess(tx, id, request.user.id, "write");
 
       const aggregate = await tx.chapter.aggregate({
         where: { bookId: id },
@@ -83,6 +78,8 @@ export async function chapterRoutes(app: FastifyInstance) {
       });
     });
 
+    void notifyBookChanged(id);
+
     return reply.status(201).send(chapter);
   });
 
@@ -90,7 +87,7 @@ export async function chapterRoutes(app: FastifyInstance) {
     const { id } = chapterParamsSchema.parse(request.params);
     const body = updateChapterSchema.parse(request.body);
 
-    return withUserRls(request.user.id, async (tx) => {
+    const updated = await withUserRls(request.user.id, async (tx) => {
       const chapter = await tx.chapter.findUnique({
         where: { id },
       });
@@ -98,6 +95,8 @@ export async function chapterRoutes(app: FastifyInstance) {
       if (!chapter) {
         throw new AppError(404, "Chapter not found");
       }
+
+      await requireBookAccess(tx, chapter.bookId, request.user.id, "write");
 
       const updatedChapter = await tx.chapter.update({
         where: { id },
@@ -118,12 +117,18 @@ export async function chapterRoutes(app: FastifyInstance) {
 
       return updatedChapter;
     });
+
+    if (body.title !== undefined) {
+      void notifyBookChanged(updated.bookId);
+    }
+
+    return updated;
   });
 
   app.delete("/chapters/:id", async (request, reply) => {
     const { id } = chapterParamsSchema.parse(request.params);
 
-    await withUserRls(request.user.id, async (tx) => {
+    const deleted = await withUserRls(request.user.id, async (tx) => {
       const chapter = await tx.chapter.findUnique({
         where: { id },
       });
@@ -131,6 +136,8 @@ export async function chapterRoutes(app: FastifyInstance) {
       if (!chapter) {
         throw new AppError(404, "Chapter not found");
       }
+
+      await requireBookAccess(tx, chapter.bookId, request.user.id, "write");
 
       await tx.chapter.delete({
         where: { id },
@@ -149,7 +156,11 @@ export async function chapterRoutes(app: FastifyInstance) {
           },
         },
       });
+
+      return chapter;
     });
+
+    void notifyBookChanged(deleted.bookId);
 
     return reply.status(204).send();
   });
@@ -158,7 +169,7 @@ export async function chapterRoutes(app: FastifyInstance) {
     const { id } = chapterParamsSchema.parse(request.params);
     const { order: requestedOrder } = reorderChapterSchema.parse(request.body);
 
-    return withUserRls(request.user.id, async (tx) => {
+    const reordered = await withUserRls(request.user.id, async (tx) => {
       const chapter = await tx.chapter.findUnique({
         where: { id },
       });
@@ -166,6 +177,8 @@ export async function chapterRoutes(app: FastifyInstance) {
       if (!chapter) {
         throw new AppError(404, "Chapter not found");
       }
+
+      await requireBookAccess(tx, chapter.bookId, request.user.id, "write");
 
       const chapterCount = await tx.chapter.count({
         where: { bookId: chapter.bookId },
@@ -220,6 +233,10 @@ export async function chapterRoutes(app: FastifyInstance) {
         },
       });
     });
+
+    void notifyBookChanged(reordered.bookId);
+
+    return reordered;
   });
 
   app.get("/chapters/:id/versions", async (request) => {

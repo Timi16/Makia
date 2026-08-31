@@ -27,6 +27,15 @@ interface ConfirmUploadResponse {
   cdnUrl: string;
 }
 
+export type BookAccessRole = "OWNER" | "EDITOR" | "VIEWER";
+export type CollaboratorRole = "EDITOR" | "VIEWER";
+
+export interface BookOwner {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface ApiBook {
   id: string;
   title: string;
@@ -37,6 +46,24 @@ export interface ApiBook {
   userId: string;
   createdAt: string;
   updatedAt: string;
+  owner: BookOwner;
+  accessRole: BookAccessRole;
+  collaboratorCount: number;
+}
+
+export interface ApiCollaborator {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: CollaboratorRole;
+  createdAt: string;
+}
+
+export interface CollaboratorsResponse {
+  accessRole: BookAccessRole;
+  owner: BookOwner;
+  collaborators: ApiCollaborator[];
 }
 
 export interface ApiChapter {
@@ -393,6 +420,30 @@ export function updateChapter(id: string, input: { title?: string; content?: str
 
 export function deleteChapter(id: string) {
   return apiFetch<void>(`/api/chapters/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function getCollaborators(bookId: string) {
+  return apiFetch<CollaboratorsResponse>(`/api/books/${bookId}/collaborators`);
+}
+
+export function addCollaborator(bookId: string, email: string, role: CollaboratorRole = "EDITOR") {
+  return apiFetch<ApiCollaborator>(`/api/books/${bookId}/collaborators`, {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export function updateCollaboratorRole(bookId: string, userId: string, role: CollaboratorRole) {
+  return apiFetch<ApiCollaborator>(`/api/books/${bookId}/collaborators/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeCollaborator(bookId: string, userId: string) {
+  return apiFetch<void>(`/api/books/${bookId}/collaborators/${userId}`, {
     method: "DELETE",
   });
 }

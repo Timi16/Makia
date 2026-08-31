@@ -25,6 +25,11 @@ enum ExportStatus {
   FAILED
 }
 
+enum CollaboratorRole {
+  EDITOR
+  VIEWER
+}
+
 model User {
   id           String        @id @default(uuid()) @db.Uuid
   email        String        @unique
@@ -36,6 +41,8 @@ model User {
   books        Book[]
   exportJobs   ExportJob[]
   assetUploads AssetUpload[]
+  collaborations BookCollaborator[] @relation("CollaboratorUser")
+  sentInvites    BookCollaborator[] @relation("CollaboratorInviter")
 
   @@map("users")
 }
@@ -54,9 +61,26 @@ model Book {
   chapters     Chapter[]
   exportJobs   ExportJob[]
   assetUploads AssetUpload[]
+  collaborators BookCollaborator[]
 
   @@index([userId])
   @@map("books")
+}
+
+model BookCollaborator {
+  id          String           @id @default(uuid()) @db.Uuid
+  bookId      String           @db.Uuid
+  userId      String           @db.Uuid
+  role        CollaboratorRole @default(EDITOR)
+  invitedById String           @db.Uuid
+  createdAt   DateTime         @default(now())
+  book        Book             @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user        User             @relation("CollaboratorUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User             @relation("CollaboratorInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, userId])
+  @@index([userId])
+  @@map("book_collaborators")
 }
 
 model Chapter {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, MoreVertical, Loader2 } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Users } from "lucide-react";
 
 import DashboardNavbar from "@/components/DashboardNavbar";
 import NewBookModal from "@/components/NewBookModal";
@@ -11,9 +11,11 @@ import {
   getBooks,
   getChapters,
   getCurrentUser,
+  removeCollaborator,
   uploadBookCover,
   type ApiBook,
   type AuthUser,
+  type BookAccessRole,
 } from "@/lib/api";
 
 type BookStatus = "idle" | "processing" | "done" | "failed";
@@ -28,6 +30,8 @@ interface UIBook {
   totalChapters: number;
   status: BookStatus;
   lastEdited: string;
+  accessRole: BookAccessRole;
+  ownerName: string;
 }
 
 const statusConfig: Record<BookStatus, { label: string; className: string; spinner?: boolean }> = {
@@ -69,25 +73,40 @@ function mapBook(book: ApiBook, index: number, chapterCount: number): UIBook {
     totalChapters: Math.max(chapterCount, 1),
     status: "idle",
     lastEdited: formatRelativeDate(book.updatedAt),
+    accessRole: book.accessRole ?? "OWNER",
+    ownerName: book.owner?.name ?? "",
   };
 }
 
 const BookCard = ({
   book,
   onDelete,
+  onLeave,
 }: {
   book: UIBook;
   onDelete: (id: string) => Promise<void>;
+  onLeave: (id: string) => Promise<void>;
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const status = statusConfig[book.status];
   const progress = Math.round((book.chapters / book.totalChapters) * 100);
+  const isOwner = book.accessRole === "OWNER";
 
   const handleDelete = async () => {
     setDeleting(true);
     try {
       await onDelete(book.id);
+      setMenuOpen(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    setDeleting(true);
+    try {
+      await onLeave(book.id);
       setMenuOpen(false);
     } finally {
       setDeleting(false);
@@ -110,6 +129,14 @@ const BookCard = ({
           <span className={`absolute bottom-3 left-3 text-xs font-medium px-2.5 py-1 rounded-full ${book.genreColor}`}>
             {book.genre}
           </span>
+          {!isOwner ? (
+            <span
+              className="absolute top-3 right-3 text-xs font-medium px-2.5 py-1 rounded-full bg-card/90 text-foreground flex items-center gap-1 shadow-sm"
+              title={`Shared with you by ${book.ownerName}`}
+            >
+              <Users className="w-3 h-3" /> Shared by {book.ownerName}
+            </span>
+          ) : null}
         </div>
       </Link>
 
@@ -147,13 +174,23 @@ const BookCard = ({
               <Link to={`/editor/${book.id}`} className="block px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">Open Editor</Link>
               <button className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">Export Book</button>
               <div className="border-t border-border my-1" />
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-muted transition-colors disabled:opacity-60"
-              >
-                {deleting ? "Deleting..." : "Delete"}
-              </button>
+              {isOwner ? (
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-muted transition-colors disabled:opacity-60"
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              ) : (
+                <button
+                  onClick={handleLeave}
+                  disabled={deleting}
+                  className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-muted transition-colors disabled:opacity-60"
+                >
+                  {deleting ? "Leaving..." : "Leave book"}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -240,6 +277,16 @@ const DashboardPage = () => {
     setBooks((prev) => prev.filter((book) => book.id !== id));
   };
 
+  const handleLeaveBook = async (id: string) => {
+    const me = getCurrentUser();
+    if (!me) {
+      return;
+    }
+
+    await removeCollaborator(id, me.id);
+    setBooks((prev) => prev.filter((book) => book.id !== id));
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <DashboardNavbar user={user} />
@@ -286,7 +333,7 @@ const DashboardPage = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {books.map((book) => (
-              <BookCard key={book.id} book={book} onDelete={handleDeleteBook} />
+              <BookCard key={book.id} book={book} onDelete={handleDeleteBook} onLeave={handleLeaveBook} />
             ))}
           </div>
         )}

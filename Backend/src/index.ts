@@ -12,6 +12,7 @@ import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { bookRoutes } from "./routes/books";
 import { chapterRoutes } from "./routes/chapters";
+import { collaboratorRoutes } from "./routes/collaborators";
 import { exportRoutes } from "./routes/export";
 import { storageRoutes } from "./routes/storage";
 import { authService } from "./services/authService";
@@ -220,6 +221,7 @@ export async function buildServer() {
   await app.register(adminRoutes, { prefix: "/api/admin" });
   await app.register(bookRoutes, { prefix: "/api/books" });
   await app.register(chapterRoutes, { prefix: "/api" });
+  await app.register(collaboratorRoutes, { prefix: "/api" });
   await app.register(storageRoutes, { prefix: "/api/storage" });
   await app.register(exportRoutes, { prefix: "/api/export" });
   await registerRealtimeServer(app);

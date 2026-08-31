@@ -2,7 +2,7 @@ import { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { prisma } from "../lib/prisma";
+import { withAdminRls } from "../lib/rls";
 import { adminGuard } from "../middleware/adminGuard";
 
 const listQuerySchema = z.object({
@@ -32,29 +32,31 @@ export async function adminRoutes(app: FastifyInstance) {
     activeSince.setDate(activeSince.getDate() - 30);
 
     const [totalUsers, totalBooks, totalExports, newUsersLast30Days, activeUsersLast30Days] =
-      await prisma.$transaction([
-        prisma.user.count(),
-        prisma.book.count(),
-        prisma.exportJob.count(),
-        prisma.user.count({
-          where: {
-            createdAt: {
-              gte: activeSince,
+      await withAdminRls((tx) =>
+        Promise.all([
+          tx.user.count(),
+          tx.book.count(),
+          tx.exportJob.count(),
+          tx.user.count({
+            where: {
+              createdAt: {
+                gte: activeSince,
+              },
             },
-          },
-        }),
-        prisma.user.count({
-          where: {
-            books: {
-              some: {
-                updatedAt: {
-                  gte: activeSince,
+          }),
+          tx.user.count({
+            where: {
+              books: {
+                some: {
+                  updatedAt: {
+                    gte: activeSince,
+                  },
                 },
               },
             },
-          },
-        }),
-      ]);
+          }),
+        ])
+      );
 
     return {
       totalUsers,
@@ -72,9 +74,10 @@ export async function adminRoutes(app: FastifyInstance) {
     const activeSince = new Date();
     activeSince.setDate(activeSince.getDate() - 30);
 
-    const [total, users] = await prisma.$transaction([
-      prisma.user.count({ where }),
-      prisma.user.findMany({
+    const [total, users] = await withAdminRls((tx) =>
+      Promise.all([
+        tx.user.count({ where }),
+        tx.user.findMany({
         where,
         orderBy: {
           createdAt: "desc",
@@ -104,7 +107,8 @@ export async function adminRoutes(app: FastifyInstance) {
           },
         },
       }),
-    ]);
+      ])
+    );
 
     return {
       items: users.map((user) => {
@@ -146,9 +150,10 @@ export async function adminRoutes(app: FastifyInstance) {
           }
         : undefined;
 
-    const [total, books] = await prisma.$transaction([
-      prisma.book.count({ where }),
-      prisma.book.findMany({
+    const [total, books] = await withAdminRls((tx) =>
+      Promise.all([
+        tx.book.count({ where }),
+        tx.book.findMany({
         where,
         orderBy: {
           updatedAt: "desc",
@@ -175,7 +180,8 @@ export async function adminRoutes(app: FastifyInstance) {
           },
         },
       }),
-    ]);
+      ])
+    );
 
     return {
       items: books.map((book) => ({

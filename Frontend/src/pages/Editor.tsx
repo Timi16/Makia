@@ -4,21 +4,32 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, GripVertical, X, Bold, Italic, Underline, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Image, Table,
-  Undo, Redo, Clock, SlidersHorizontal, Download, Trash2, Menu
+  Undo, Redo, Clock, SlidersHorizontal, Download, Trash2, Menu, Users
 } from "lucide-react";
+import type * as Y from "yjs";
 
 import ExportModal from "@/components/ExportModal";
-import { collaborators } from "@/lib/mockData";
+import PresenceAvatars from "@/components/PresenceAvatars";
+import ShareBookModal from "@/components/ShareBookModal";
 import {
   createChapter,
   deleteChapter,
   getBook,
   getChapters,
+  getCurrentUser,
   uploadBookCover,
   updateChapter,
   type ApiBook,
   type ApiChapter,
 } from "@/lib/api";
+import {
+  applyTextDiff,
+  BookRealtime,
+  LOCAL_ORIGIN,
+  transformCursor,
+  type PresenceUser,
+  type RealtimeStatus,
+} from "@/lib/realtime";
 
 const toolbarGroups = [
   [
@@ -77,10 +88,51 @@ const EditorPage = () => {
   const [deletingChapterId, setDeletingChapterId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showShare, setShowShare] = useState(false);
+  const [presence, setPresence] = useState<PresenceUser[]>([]);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting");
+  const [realtimeSynced, setRealtimeSynced] = useState(false);
+  const [pendingSync, setPendingSync] = useState(false);
+  const [connectionId, setConnectionId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef(-1);
+  const realtimeRef = useRef<BookRealtime | null>(null);
+  const editorHtmlRef = useRef("");
+  const lastSavedContentRef = useRef("");
+  const chapterTitleRef = useRef("");
+  const lastSavedTitleRef = useRef("");
+  const activeChapterRef = useRef("");
+  const boundChapterRef = useRef("");
+  const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const currentUser = useMemo(() => getCurrentUser(), []);
+
+  const accessRole = book?.accessRole ?? "OWNER";
+  const canEdit = accessRole !== "VIEWER";
+  const isOwner = accessRole === "OWNER";
+  const isLive = realtimeStatus === "connected" && realtimeSynced;
+
+  useEffect(() => {
+    editorHtmlRef.current = editorHtml;
+  }, [editorHtml]);
+
+  useEffect(() => {
+    lastSavedContentRef.current = lastSavedContent;
+  }, [lastSavedContent]);
+
+  useEffect(() => {
+    chapterTitleRef.current = chapterTitle;
+  }, [chapterTitle]);
+
+  useEffect(() => {
+    lastSavedTitleRef.current = lastSavedTitle;
+  }, [lastSavedTitle]);
+
+  useEffect(() => {
+    activeChapterRef.current = activeChapter;
+    realtimeRef.current?.sendPresence(activeChapter || null);
+  }, [activeChapter]);
 
   const pushHistory = (nextValue: string) => {
     const current = historyRef.current[historyIndexRef.current];
@@ -93,6 +145,71 @@ const EditorPage = () => {
     historyRef.current = trimmed.slice(-200);
     historyIndexRef.current = historyRef.current.length - 1;
   };
+
+  /**
+   * Single entry point for every local content change: updates the editor,
+   * the undo history, and (once the shared document is available) the Yjs
+   * text so other collaborators receive the edit.
+   */
+  const commitLocalContent = (nextValue: string, options: { history?: boolean } = {}) => {
+    setEditorHtml(nextValue);
+    editorHtmlRef.current = nextValue;
+
+    if (options.history !== false) {
+      pushHistory(nextValue);
+    }
+
+    const realtime = realtimeRef.current;
+    const chapterId = boundChapterRef.current;
+
+    if (realtime && realtime.hasSyncedOnce && chapterId) {
+      applyTextDiff(realtime.getText(chapterId), nextValue);
+      setPendingSync(true);
+    }
+  };
+
+  /** Re-fetches book + chapters after another collaborator changed them. */
+  const refreshBookAndChapters = async () => {
+    if (!bookId) {
+      return;
+    }
+
+    try {
+      const [bookResult, chapterResult] = await Promise.all([getBook(bookId), getChapters(bookId)]);
+      const realtime = realtimeRef.current;
+
+      setBook(bookResult);
+      setChapters(
+        chapterResult.map((chapter) => {
+          if (!realtime?.hasSyncedOnce) {
+            return chapter;
+          }
+
+          const liveContent = realtime.getText(chapter.id).toString();
+          return liveContent.length > 0 ? { ...chapter, content: liveContent } : chapter;
+        })
+      );
+
+      const active = chapterResult.find((chapter) => chapter.id === activeChapterRef.current);
+
+      if (!active) {
+        setActiveChapter(chapterResult[0]?.id ?? "");
+        return;
+      }
+
+      if (active.title !== lastSavedTitleRef.current) {
+        const titleUntouched = chapterTitleRef.current === lastSavedTitleRef.current;
+        setLastSavedTitle(active.title);
+        if (titleUntouched) {
+          setChapterTitle(active.title);
+        }
+      }
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh book");
+    }
+  };
+
+  refreshRef.current = refreshBookAndChapters;
 
   useEffect(() => {
     if (!bookId) {
@@ -146,6 +263,66 @@ const EditorPage = () => {
     };
   }, [bookId, navigate]);
 
+  // Realtime collaboration session for this book.
+  useEffect(() => {
+    if (!bookId || !book) {
+      return;
+    }
+
+    const realtime = new BookRealtime(bookId, {
+      onStatus: (status) => {
+        setRealtimeStatus(status);
+
+        if (status !== "connected") {
+          setRealtimeSynced(false);
+        }
+
+        if (status === "revoked") {
+          navigate("/dashboard");
+        }
+      },
+      onReady: (_role, id) => setConnectionId(id),
+      onPresence: setPresence,
+      onSynced: () => {
+        setRealtimeSynced(true);
+        realtime.sendPresence(activeChapterRef.current || null);
+      },
+      onSaved: (chapterIds) => {
+        setChapters((prev) =>
+          prev.map((chapter) =>
+            chapterIds.includes(chapter.id)
+              ? {
+                  ...chapter,
+                  content: realtime.getText(chapter.id).toString(),
+                  updatedAt: new Date().toISOString(),
+                }
+              : chapter
+          )
+        );
+
+        if (chapterIds.includes(activeChapterRef.current)) {
+          setLastSavedContent(editorHtmlRef.current);
+          setPendingSync(false);
+        }
+      },
+      onBookChanged: () => {
+        void refreshRef.current();
+      },
+    });
+
+    realtimeRef.current = realtime;
+
+    return () => {
+      realtime.destroy();
+      realtimeRef.current = null;
+      setRealtimeSynced(false);
+      setPresence([]);
+      setConnectionId(null);
+    };
+    // Reconnect only when the book itself changes, not on every metadata update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookId, book?.id, navigate]);
+
   const chapterEntries = useMemo(
     () => [...chapters].sort((a, b) => a.order - b.order),
     [chapters]
@@ -161,23 +338,96 @@ const EditorPage = () => {
     [chapterEntries]
   );
 
+  const chapterLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        chapterEntries.map((chapter, index) => [chapter.id, `Ch. ${index + 1} — ${chapter.title}`])
+      ) as Record<string, string>,
+    [chapterEntries]
+  );
+
+  // Binds the editor to the selected chapter: plain REST content until the
+  // shared document arrives, then the chapter's Y.Text (with remote updates
+  // streamed into the textarea).
   useEffect(() => {
-    if (selectedChapter) {
-      setChapterTitle(selectedChapter.title || "");
-      setLastSavedTitle(selectedChapter.title || "");
-      setEditorHtml(selectedChapter.content || "");
-      setLastSavedContent(selectedChapter.content || "");
-      historyRef.current = [selectedChapter.content || ""];
-      historyIndexRef.current = 0;
-    } else {
+    const realtime = realtimeRef.current;
+    const chapter = selectedChapter;
+
+    if (!chapter) {
       setChapterTitle("");
       setLastSavedTitle("");
       setEditorHtml("");
+      editorHtmlRef.current = "";
       setLastSavedContent("");
+      lastSavedContentRef.current = "";
       historyRef.current = [""];
       historyIndexRef.current = 0;
+      boundChapterRef.current = "";
+      return;
     }
-  }, [selectedChapter]);
+
+    setChapterTitle(chapter.title || "");
+    setLastSavedTitle(chapter.title || "");
+
+    let content = chapter.content || "";
+    let text: Y.Text | null = null;
+
+    if (realtime && realtimeSynced) {
+      text = realtime.getText(chapter.id);
+      const sameChapter = boundChapterRef.current === chapter.id;
+      const localDirty = sameChapter && editorHtmlRef.current !== lastSavedContentRef.current;
+
+      if (localDirty && canEdit) {
+        // Typed before the shared document arrived: merge those edits in.
+        applyTextDiff(text, editorHtmlRef.current);
+      }
+
+      content = text.toString();
+    }
+
+    boundChapterRef.current = chapter.id;
+    setEditorHtml(content);
+    editorHtmlRef.current = content;
+    setLastSavedContent(content);
+    lastSavedContentRef.current = content;
+    setPendingSync(false);
+    historyRef.current = [content];
+    historyIndexRef.current = 0;
+
+    if (!text) {
+      return;
+    }
+
+    const boundText = text;
+    const observer = (event: Y.YTextEvent, transaction: Y.Transaction) => {
+      if (transaction.origin === LOCAL_ORIGIN) {
+        return;
+      }
+
+      const value = boundText.toString();
+      const textarea = textareaRef.current;
+
+      if (textarea && document.activeElement === textarea) {
+        const start = transformCursor(event.delta, textarea.selectionStart);
+        const end = transformCursor(event.delta, textarea.selectionEnd);
+        window.requestAnimationFrame(() => textarea.setSelectionRange(start, end));
+      }
+
+      editorHtmlRef.current = value;
+      setEditorHtml(value);
+      lastSavedContentRef.current = value;
+      setLastSavedContent(value);
+      setChapters((prev) => prev.map((entry) => (entry.id === chapter.id ? { ...entry, content: value } : entry)));
+    };
+
+    boundText.observe(observer);
+
+    return () => {
+      boundText.unobserve(observer);
+    };
+    // Re-bind only when the chapter or sync state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChapter?.id, realtimeSynced, canEdit]);
 
   const toggleTool = (label: string) => {
     setActiveTools((prev) =>
@@ -203,8 +453,7 @@ const EditorPage = () => {
       selectionEnd: textarea.selectionEnd,
     });
 
-    setEditorHtml(result.value);
-    pushHistory(result.value);
+    commitLocalContent(result.value);
 
     window.requestAnimationFrame(() => {
       textarea.focus();
@@ -246,7 +495,7 @@ const EditorPage = () => {
 
     historyIndexRef.current -= 1;
     const previous = historyRef.current[historyIndexRef.current] ?? "";
-    setEditorHtml(previous);
+    commitLocalContent(previous, { history: false });
   };
 
   const handleRedo = () => {
@@ -256,7 +505,7 @@ const EditorPage = () => {
 
     historyIndexRef.current += 1;
     const next = historyRef.current[historyIndexRef.current] ?? "";
-    setEditorHtml(next);
+    commitLocalContent(next, { history: false });
   };
 
   const handleToolAction = (label: string) => {
@@ -319,12 +568,20 @@ const EditorPage = () => {
     }
   };
 
+  /**
+   * Saves through the REST API. While the realtime session is live the server
+   * persists chapter content itself, so only the title goes through here.
+   */
   const handleSaveChapter = async () => {
-    if (!selectedChapter) {
+    if (!selectedChapter || !canEdit) {
       return;
     }
 
-    if (editorHtml === lastSavedContent && chapterTitle === lastSavedTitle) {
+    const live = realtimeRef.current?.isLive ?? false;
+    const titleChanged = chapterTitle !== lastSavedTitle;
+    const contentChanged = !live && editorHtml !== lastSavedContent;
+
+    if (!titleChanged && !contentChanged) {
       return;
     }
 
@@ -332,13 +589,20 @@ const EditorPage = () => {
 
     try {
       const updated = await updateChapter(selectedChapter.id, {
-        title: chapterTitle.trim() || "Untitled Chapter",
-        content: editorHtml,
+        ...(titleChanged ? { title: chapterTitle.trim() || "Untitled Chapter" } : {}),
+        ...(contentChanged ? { content: editorHtml } : {}),
       });
 
-      setChapters((prev) => prev.map((chapter) => (chapter.id === updated.id ? updated : chapter)));
+      setChapters((prev) =>
+        prev.map((chapter) =>
+          chapter.id === updated.id ? { ...updated, content: live ? chapter.content : updated.content } : chapter
+        )
+      );
       setLastSavedTitle(updated.title);
-      setLastSavedContent(editorHtml);
+
+      if (contentChanged) {
+        setLastSavedContent(editorHtml);
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save chapter");
     } finally {
@@ -347,10 +611,14 @@ const EditorPage = () => {
   };
 
   useEffect(() => {
-    if (
-      !selectedChapter ||
-      (editorHtml === lastSavedContent && chapterTitle === lastSavedTitle)
-    ) {
+    if (!selectedChapter || !canEdit) {
+      return;
+    }
+
+    const titleChanged = chapterTitle !== lastSavedTitle;
+    const contentChanged = !isLive && editorHtml !== lastSavedContent;
+
+    if (!titleChanged && !contentChanged) {
       return;
     }
 
@@ -361,7 +629,9 @@ const EditorPage = () => {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [editorHtml, lastSavedContent, chapterTitle, lastSavedTitle, selectedChapter]);
+    // handleSaveChapter is recreated each render; its inputs are listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorHtml, lastSavedContent, chapterTitle, lastSavedTitle, selectedChapter, isLive, canEdit]);
 
   const handleSelectChapter = async (chapterId: string) => {
     if (chapterId === activeChapter) {
@@ -471,6 +741,27 @@ const EditorPage = () => {
     return <div className="min-h-screen p-8 text-destructive">{error || "Book not found"}</div>;
   }
 
+  const contentDirty = editorHtml !== lastSavedContent || chapterTitle !== lastSavedTitle;
+  let statusLabel: string;
+  let statusDotClass: string;
+
+  if (!canEdit) {
+    statusLabel = "View only";
+    statusDotClass = "bg-muted-foreground";
+  } else if (isSaving || (isLive && pendingSync)) {
+    statusLabel = isLive ? "Syncing..." : "Saving...";
+    statusDotClass = "bg-warning animate-pulse";
+  } else if (realtimeStatus === "reconnecting" || realtimeStatus === "offline") {
+    statusLabel = contentDirty ? "Unsaved changes" : "Saved · offline";
+    statusDotClass = contentDirty ? "bg-warning" : "bg-muted-foreground";
+  } else if (isLive) {
+    statusLabel = "Saved · live";
+    statusDotClass = "bg-success";
+  } else {
+    statusLabel = contentDirty ? "Unsaved changes" : "Saved";
+    statusDotClass = contentDirty ? "bg-warning" : "bg-success";
+  }
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <div className="bg-card border-b border-border flex items-center px-3 md:px-4 py-2 md:h-14 shrink-0 gap-2">
@@ -486,19 +777,22 @@ const EditorPage = () => {
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2 md:px-3 py-1.5 rounded-full">
-            <span className={`w-2 h-2 rounded-full ${isSaving ? "bg-warning animate-pulse" : "bg-success"}`} />
-            <span className="hidden md:inline">{isSaving ? "Saving..." : editorHtml === lastSavedContent ? "Saved" : "Unsaved changes"}</span>
+            <span className={`w-2 h-2 rounded-full ${statusDotClass}`} />
+            <span className="hidden md:inline">{statusLabel}</span>
           </span>
         </div>
         <div className="flex items-center gap-1 md:gap-3 flex-1 justify-end min-w-0">
-          <div className="hidden lg:flex -space-x-2">
-            {collaborators.map((c, i) => (
-              <div key={i} className="relative" title={`${c.name} is editing`}>
-                <img src={c.avatar} alt={c.name} className="w-8 h-8 rounded-full object-cover border-2 border-card" />
-                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-success border-2 border-card" />
-              </div>
-            ))}
+          <div className="hidden lg:flex items-center">
+            <PresenceAvatars users={presence} currentConnectionId={connectionId} chapterLabels={chapterLabels} />
           </div>
+          <button
+            onClick={() => setShowShare(true)}
+            className="flex items-center gap-1.5 px-2.5 md:px-3 py-2 rounded-xl border border-border text-sm text-foreground hover:bg-muted transition-colors"
+            title={isOwner ? "Share this book" : "People with access"}
+          >
+            <Users className="w-4 h-4" />
+            <span className="hidden sm:inline">{isOwner ? "Share" : "Shared"}</span>
+          </button>
           <div className="hidden lg:block w-px h-6 bg-border" />
           <button
             onClick={() => { setShowHistory(!showHistory); setShowDetails(false); setShowChapters(false); }}
@@ -552,9 +846,11 @@ const EditorPage = () => {
 
           <div className="p-4 flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Chapters</span>
-            <button onClick={handleCreateChapter} className="p-1 rounded-md hover:bg-muted transition-colors">
-              <Plus className="w-4 h-4 text-muted-foreground" />
-            </button>
+            {canEdit ? (
+              <button onClick={handleCreateChapter} className="p-1 rounded-md hover:bg-muted transition-colors" title="Add chapter">
+                <Plus className="w-4 h-4 text-muted-foreground" />
+              </button>
+            ) : null}
           </div>
 
           <div className="flex-1 overflow-y-auto px-2 space-y-1">
@@ -581,21 +877,23 @@ const EditorPage = () => {
                       </p>
                     </div>
                   </button>
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleDeleteChapter(chapter.id);
-                    }}
-                    disabled={deletingChapterId === chapter.id}
-                    className={`p-1 rounded-md transition-colors ${
-                      activeChapter === chapter.id
-                        ? "hover:bg-primary-foreground/20"
-                        : "hover:bg-muted"
-                    } disabled:opacity-60`}
-                    title="Delete chapter"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canEdit ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteChapter(chapter.id);
+                      }}
+                      disabled={deletingChapterId === chapter.id}
+                      className={`p-1 rounded-md transition-colors ${
+                        activeChapter === chapter.id
+                          ? "hover:bg-primary-foreground/20"
+                          : "hover:bg-muted"
+                      } disabled:opacity-60`}
+                      title="Delete chapter"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
@@ -619,7 +917,8 @@ const EditorPage = () => {
                       <button
                         key={tool.label}
                         onClick={() => handleToolAction(tool.label)}
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                        disabled={!canEdit}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                           activeTools.includes(tool.label)
                             ? "bg-primary/10 text-primary"
                             : "hover:bg-muted text-muted-foreground"
@@ -641,6 +940,7 @@ const EditorPage = () => {
                       value={chapterTitle}
                       onChange={(event) => setChapterTitle(event.target.value)}
                       onBlur={() => void handleSaveChapter()}
+                      readOnly={!canEdit}
                       className="w-full text-2xl md:text-3xl font-bold bg-transparent text-foreground focus:outline-none"
                       placeholder="Chapter title"
                     />
@@ -648,11 +948,9 @@ const EditorPage = () => {
                   <textarea
                     ref={textareaRef}
                     value={editorHtml}
-                    onChange={(event) => {
-                      setEditorHtml(event.target.value);
-                      pushHistory(event.target.value);
-                    }}
+                    onChange={(event) => commitLocalContent(event.target.value)}
                     onBlur={() => void handleSaveChapter()}
+                    readOnly={!canEdit}
                     className="w-full px-4 md:px-16 py-6 md:py-8 min-h-[54vh] bg-transparent text-foreground leading-relaxed focus:outline-none resize-none"
                     placeholder="Start writing..."
                   />
@@ -707,13 +1005,19 @@ const EditorPage = () => {
                     className="hidden"
                     onChange={handleUploadCover}
                   />
-                  <button
-                    onClick={() => coverInputRef.current?.click()}
-                    disabled={isUploadingCover}
-                    className="text-sm text-primary hover:underline disabled:opacity-60"
-                  >
-                    {isUploadingCover ? "Uploading cover..." : "Upload cover"}
-                  </button>
+                  {isOwner ? (
+                    <button
+                      onClick={() => coverInputRef.current?.click()}
+                      disabled={isUploadingCover}
+                      className="text-sm text-primary hover:underline disabled:opacity-60"
+                    >
+                      {isUploadingCover ? "Uploading cover..." : "Upload cover"}
+                    </button>
+                  ) : null}
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">Owner</label>
+                  <p className="text-sm text-foreground/90">{book.owner.name}{isOwner ? " (you)" : ""}</p>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">Description</label>
@@ -750,6 +1054,14 @@ const EditorPage = () => {
       </div>
 
       {showExport && <ExportModal onClose={() => setShowExport(false)} book={book} chapters={chapterEntries} />}
+      {showShare && currentUser ? (
+        <ShareBookModal
+          book={book}
+          currentUserId={currentUser.id}
+          onClose={() => setShowShare(false)}
+          onLeave={() => navigate("/dashboard")}
+        />
+      ) : null}
     </div>
   );
 };

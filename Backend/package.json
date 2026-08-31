@@ -52,5 +52,10 @@
     "pm2": "^6.0.14",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "allowScripts": {
+    "prisma@6.16.2": true,
+    "sharp@0.34.5": true,
+    "msgpackr-extract@3.0.3": true
   }
 }

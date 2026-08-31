@@ -1,9 +1,12 @@
 import { FastifyInstance } from "fastify";
+import { CollaboratorRole } from "@prisma/client";
 import { z } from "zod";
 
+import { BookAccessRole, requireBookAccess } from "../lib/bookAccess";
 import { withUserRls } from "../lib/rls";
 import { AppError } from "../middleware/errorHandler";
 import { authGuard } from "../middleware/authGuard";
+import { notifyBookChanged } from "../ws/realtimeServer";
 
 const paramsSchema = z.object({
   id: z.uuid(),
@@ -24,15 +27,49 @@ const updateBookSchema = createBookSchema.partial().refine(
   }
 );
 
+const bookAccessInclude = (userId: string) =>
+  ({
+    user: { select: { id: true, name: true, email: true } },
+    collaborators: {
+      where: { userId },
+      select: { role: true },
+      take: 1,
+    },
+    _count: { select: { collaborators: true } },
+  }) as const;
+
+interface BookWithAccess {
+  user: { id: string; name: string; email: string };
+  collaborators: { role: CollaboratorRole }[];
+  _count: { collaborators: number };
+  userId: string;
+}
+
+function serializeBook<T extends BookWithAccess>(book: T, userId: string) {
+  const { user, collaborators, _count, ...rest } = book;
+  const accessRole: BookAccessRole =
+    book.userId === userId ? "OWNER" : (collaborators[0]?.role ?? "VIEWER");
+
+  return {
+    ...rest,
+    owner: user,
+    accessRole,
+    collaboratorCount: _count.collaborators,
+  };
+}
+
 export async function bookRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
 
   app.get("/", async (request) => {
-    return withUserRls(request.user.id, async (tx) =>
+    const books = await withUserRls(request.user.id, async (tx) =>
       tx.book.findMany({
         orderBy: { updatedAt: "desc" },
+        include: bookAccessInclude(request.user.id),
       })
     );
+
+    return books.map((book) => serializeBook(book, request.user.id));
   });
 
   app.post("/", async (request, reply) => {
@@ -45,10 +82,11 @@ export async function bookRoutes(app: FastifyInstance) {
           tags: body.tags ?? [],
           userId: request.user.id,
         },
+        include: bookAccessInclude(request.user.id),
       })
     );
 
-    return reply.status(201).send(book);
+    return reply.status(201).send(serializeBook(book, request.user.id));
   });
 
   app.get("/:id", async (request) => {
@@ -56,6 +94,7 @@ export async function bookRoutes(app: FastifyInstance) {
     const book = await withUserRls(request.user.id, async (tx) =>
       tx.book.findUnique({
         where: { id },
+        include: bookAccessInclude(request.user.id),
       })
     );
 
@@ -63,21 +102,20 @@ export async function bookRoutes(app: FastifyInstance) {
       throw new AppError(404, "Book not found");
     }
 
-    return book;
+    return serializeBook(book, request.user.id);
   });
 
   app.patch("/:id", async (request) => {
     const { id } = paramsSchema.parse(request.params);
     const body = updateBookSchema.parse(request.body);
 
-    return withUserRls(request.user.id, async (tx) => {
-      const existingBook = await tx.book.findUnique({
-        where: { id },
-      });
+    const book = await withUserRls(request.user.id, async (tx) => {
+      await requireBookAccess(tx, id, request.user.id, "owner");
 
-      if (!existingBook) {
-        throw new AppError(404, "Book not found");
-      }
+      const existingBook = await tx.book.findUniqueOrThrow({
+        where: { id },
+        select: { tags: true },
+      });
 
       return tx.book.update({
         where: { id },
@@ -85,21 +123,20 @@ export async function bookRoutes(app: FastifyInstance) {
           ...body,
           tags: body.tags ?? existingBook.tags,
         },
+        include: bookAccessInclude(request.user.id),
       });
     });
+
+    void notifyBookChanged(id);
+
+    return serializeBook(book, request.user.id);
   });
 
   app.delete("/:id", async (request, reply) => {
     const { id } = paramsSchema.parse(request.params);
 
     await withUserRls(request.user.id, async (tx) => {
-      const existingBook = await tx.book.findUnique({
-        where: { id },
-      });
-
-      if (!existingBook) {
-        throw new AppError(404, "Book not found");
-      }
+      await requireBookAccess(tx, id, request.user.id, "owner");
 
       await tx.book.delete({
         where: { id },
