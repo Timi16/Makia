@@ -142,9 +142,35 @@ const API_BASE_URL =
   "https://prefamiliar-unprecociously-pearlie.ngrok-free.dev";
 const IS_NGROK_BASE_URL = /ngrok(?:-free)?\.dev|ngrok\.io/i.test(API_BASE_URL);
 
+const REQUEST_TIMEOUT_MS = 20_000;
+// The session bootstrap blocks the first render, so it gives up sooner than a
+// regular request: an unreachable API should degrade the app, not hang it.
+const SESSION_TIMEOUT_MS = 8_000;
+
 function applyTunnelHeaders(headers: Headers) {
   if (IS_NGROK_BASE_URL) {
     headers.set("ngrok-skip-browser-warning", "true");
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  if (init.signal) {
+    return fetch(url, init);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -228,11 +254,15 @@ async function refreshSession() {
     refreshPromise = (async () => {
       const headers = new Headers();
       applyTunnelHeaders(headers);
-      const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-        method: "POST",
-        headers,
-        credentials: "include",
-      });
+      const response = await fetchWithTimeout(
+        `${API_BASE_URL}/api/auth/refresh`,
+        {
+          method: "POST",
+          headers,
+          credentials: "include",
+        },
+        SESSION_TIMEOUT_MS
+      );
 
       if (!response.ok) {
         clearAuth();
@@ -273,11 +303,15 @@ async function apiFetch<T>(
   }
   applyTunnelHeaders(headers);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  const response = await fetchWithTimeout(
+    `${API_BASE_URL}${path}`,
+    {
+      ...init,
+      headers,
+      credentials: "include",
+    },
+    REQUEST_TIMEOUT_MS
+  );
 
   if (response.status === 401 && auth && retry) {
     try {

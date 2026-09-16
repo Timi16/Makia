@@ -98,12 +98,17 @@ function assertUserRole(user: AuthenticatedUser, expectedRole: UserRole) {
 }
 
 function getRefreshCookieOptions(): CookieSerializeOptions {
+  const isProduction = process.env.NODE_ENV === "production";
+
   const options: CookieSerializeOptions = {
     httpOnly: true,
     maxAge: refreshTokenMaxAgeSeconds,
     path: "/",
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    // In production the frontend is served from a different site than the API, so
+    // the browser only sends this cookie on those cross-site requests when it is
+    // SameSite=None, which in turn requires Secure.
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
   };
 
   if (process.env.COOKIE_DOMAIN && process.env.COOKIE_DOMAIN !== "localhost") {
@@ -122,13 +127,10 @@ export function setRefreshCookie(reply: FastifyReply, refreshToken: string) {
 }
 
 export function clearRefreshCookie(reply: FastifyReply) {
-  reply.clearCookie(refreshCookieName, {
-    path: "/",
-    domain:
-      process.env.COOKIE_DOMAIN && process.env.COOKIE_DOMAIN !== "localhost"
-        ? process.env.COOKIE_DOMAIN
-        : undefined,
-  });
+  // Browsers only drop a cookie when the clearing attributes match the ones it
+  // was set with, so reuse the same options minus the expiry.
+  const { maxAge: _maxAge, ...options } = getRefreshCookieOptions();
+  reply.clearCookie(refreshCookieName, options);
 }
 
 export class AuthService {
