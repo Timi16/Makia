@@ -106,20 +106,20 @@ npm run pm2:stop
 `JWT_REFRESH_SECRET`
 : Secret used to sign 7-day refresh tokens.
 
-`AWS_REGION`
-: AWS region for the S3 bucket.
+`R2_ACCOUNT_ID`
+: Cloudflare account ID; the API endpoint is `https://<account-id>.r2.cloudflarestorage.com`.
 
-`AWS_ACCESS_KEY_ID`
-: Access key with permission to read and write upload and export objects.
+`R2_ACCESS_KEY_ID`
+: R2 API token access key with permission to read and write upload and export objects.
 
-`AWS_SECRET_ACCESS_KEY`
-: Secret for the AWS access key.
+`R2_SECRET_ACCESS_KEY`
+: Secret for the R2 access key.
 
-`S3_BUCKET_NAME`
-: Bucket that stores uploads, resized image variants, and exports.
+`R2_BUCKET`
+: R2 bucket that stores uploads, resized image variants, and exports.
 
-`CLOUDFRONT_URL`
-: Optional CloudFront distribution URL used to build CDN-facing asset URLs.
+`R2_PUBLIC_URL`
+: Optional public bucket URL (custom domain or `https://pub-<hash>.r2.dev`) used to build public-facing asset URLs.
 
 `PORT`
 : Fastify server port. Defaults to `4000`.

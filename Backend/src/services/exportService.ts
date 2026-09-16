@@ -9,6 +9,12 @@ import { v4 as uuidv4 } from "uuid";
 
 import { exportQueue, type ExportQueuePayload } from "../jobs/exportQueue";
 import { withUserRls } from "../lib/rls";
+import {
+  createStorageClient,
+  extractKeyFromUrl,
+  getPublicUrl,
+  getStorageConfig,
+} from "../lib/storage";
 import { AppError } from "../middleware/errorHandler";
 
 interface CreateExportInput {
@@ -23,41 +29,6 @@ interface ExportStatusInput {
 }
 
 const signedDownloadExpirySeconds = 10 * 60;
-
-function getAwsConfig() {
-  const region = process.env.AWS_REGION;
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  const bucket = process.env.S3_BUCKET_NAME;
-
-  if (!region || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new AppError(500, "AWS S3 environment variables are not fully configured");
-  }
-
-  return {
-    bucket,
-    region,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
-  };
-}
-
-function getCdnUrl(s3Key: string) {
-  const { bucket, region } = getAwsConfig();
-  const cloudfrontUrl = process.env.CLOUDFRONT_URL?.replace(/\/+$/, "");
-
-  if (cloudfrontUrl) {
-    return `${cloudfrontUrl}/${s3Key}`;
-  }
-
-  return `https://${bucket}.s3.${region}.amazonaws.com/${s3Key}`;
-}
-
-function createS3Client() {
-  return new S3Client(getAwsConfig());
-}
 
 function getFileExtension(format: ExportFormat) {
   switch (format) {
@@ -316,7 +287,7 @@ export class ExportService {
     }
 
     if (exportJob.status === ExportStatus.DONE && exportJob.fileUrl) {
-      const s3Key = this.extractS3KeyFromUrl(exportJob.fileUrl);
+      const s3Key = extractKeyFromUrl(exportJob.fileUrl);
       if (s3Key) {
         const signedUrl = await this.createSignedDownloadUrl(s3Key);
 
@@ -526,35 +497,17 @@ export class ExportService {
     fileBuffer: Buffer,
     format: ExportFormat
   ) {
-    const { bucket } = getAwsConfig();
-    try {
-      await this.getS3Client().send(
-        new PutObjectCommand({
-          Body: fileBuffer,
-          Bucket: bucket,
-          ContentType: this.getContentType(format),
-          Key: s3Key,
-        })
-      );
-    } catch (error) {
-      const maybeS3 = error as {
-        Code?: string;
-        Endpoint?: string;
-        message?: string;
-      };
+    const { bucket } = getStorageConfig();
+    await this.getS3Client().send(
+      new PutObjectCommand({
+        Body: fileBuffer,
+        Bucket: bucket,
+        ContentType: this.getContentType(format),
+        Key: s3Key,
+      })
+    );
 
-      if (maybeS3?.Code === "PermanentRedirect") {
-        const endpointHint = maybeS3.Endpoint ? ` Use endpoint/region: ${maybeS3.Endpoint}.` : "";
-        throw new AppError(
-          500,
-          `S3 bucket region mismatch.${endpointHint} Set AWS_REGION to the bucket region and restart API + worker.`
-        );
-      }
-
-      throw error;
-    }
-
-    return getCdnUrl(s3Key);
+    return getPublicUrl(s3Key);
   }
 
   private getContentType(format: ExportFormat) {
@@ -569,12 +522,12 @@ export class ExportService {
   }
 
   private getS3Client() {
-    this.s3Client ??= createS3Client();
+    this.s3Client ??= createStorageClient();
     return this.s3Client;
   }
 
   private async createSignedDownloadUrl(s3Key: string) {
-    const { bucket } = getAwsConfig();
+    const { bucket } = getStorageConfig();
 
     return getSignedUrl(
       this.getS3Client(),
@@ -586,16 +539,6 @@ export class ExportService {
         expiresIn: signedDownloadExpirySeconds,
       }
     );
-  }
-
-  private extractS3KeyFromUrl(fileUrl: string) {
-    try {
-      const parsed = new URL(fileUrl);
-      const key = parsed.pathname.replace(/^\/+/, "");
-      return key.length > 0 ? key : null;
-    } catch {
-      return null;
-    }
   }
 }
 

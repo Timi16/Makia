@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { v4 as uuidv4 } from "uuid";
 
 import { withUserRls } from "../lib/rls";
+import { createStorageClient, getPublicUrl, getStorageConfig } from "../lib/storage";
 import { AppError } from "../middleware/errorHandler";
 
 interface PresignUploadInput {
@@ -24,41 +25,6 @@ interface ConfirmUploadInput {
 }
 
 const presignedUrlExpirySeconds = 5 * 60;
-
-function getAwsConfig() {
-  const region = process.env.AWS_REGION;
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  const bucket = process.env.S3_BUCKET_NAME;
-
-  if (!region || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new AppError(500, "AWS S3 environment variables are not fully configured");
-  }
-
-  return {
-    bucket,
-    region,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
-  };
-}
-
-function createS3Client() {
-  return new S3Client(getAwsConfig());
-}
-
-function getCdnUrl(s3Key: string) {
-  const { bucket, region } = getAwsConfig();
-  const cloudfrontUrl = process.env.CLOUDFRONT_URL?.replace(/\/+$/, "");
-
-  if (cloudfrontUrl) {
-    return `${cloudfrontUrl}/${s3Key}`;
-  }
-
-  return `https://${bucket}.s3.${region}.amazonaws.com/${s3Key}`;
-}
 
 function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -154,7 +120,7 @@ export class StorageService {
     await this.assertBookOwnership(userId, bookId);
 
     const command = new PutObjectCommand({
-      Bucket: getAwsConfig().bucket,
+      Bucket: getStorageConfig().bucket,
       ContentType: fileType,
       Key: s3Key,
     });
@@ -166,13 +132,13 @@ export class StorageService {
     return {
       presignedUrl,
       s3Key,
-      cdnUrl: getCdnUrl(s3Key),
+      cdnUrl: getPublicUrl(s3Key),
     };
   }
 
   public async confirmUpload(input: ConfirmUploadInput) {
     const { bookId, fileType, s3Key, userId, assetKind } = input;
-    const cdnUrl = getCdnUrl(s3Key);
+    const cdnUrl = getPublicUrl(s3Key);
 
     await withUserRls(userId, async (tx) => {
       const book = await tx.book.findUnique({
@@ -232,7 +198,7 @@ export class StorageService {
       return;
     }
 
-    const { bucket } = getAwsConfig();
+    const { bucket } = getStorageConfig();
     const object = await this.getS3Client().send(
       new GetObjectCommand({
         Bucket: bucket,
@@ -254,7 +220,7 @@ export class StorageService {
   }
 
   private getS3Client() {
-    this.s3Client ??= createS3Client();
+    this.s3Client ??= createStorageClient();
     return this.s3Client;
   }
 }
